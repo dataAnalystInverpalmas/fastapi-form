@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portal de Datos Inverpalmas</title>
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- DataTables CSS -->
+    <link href="https://cdn.datatables.net/1.13.8/css/dataTables.bootstrap5.min.css" rel="stylesheet">
+    <!-- DataTables Responsive CSS -->
+    <link href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.bootstrap5.min.css" rel="stylesheet">
+    <!-- Font Awesome para iconos -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', path='css/styles.css') }}">
+        {% block extra_head %}{% endblock %}
+</head>
+<body>
+    <div class="app-wrapper">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <a href="/dashboard" class="sidebar-brand">
+                    <i class="fas fa-leaf"></i>
+                    <span>Inverpalmas</span>
+                </a>
+            </div>
+            <nav class="sidebar-nav">
+                <div class="nav-section-title">General</div>
+                <a class="nav-item" href="/dashboard" data-path="/dashboard">
+                    <i class="fas fa-chart-line"></i><span>Dashboard</span>
+                </a>
+                <div class="nav-section-title">Datos</div>
+                <a class="nav-item" href="/consultar" data-path="/consultar">
+                    <i class="fas fa-search"></i><span>Consultar DBF</span>
+                </a>
+                <a class="nav-item" href="/reporte-dinamico" data-path="/reporte-dinamico">
+                    <i class="fas fa-table-columns"></i><span>Reporte Dinámico</span>
+                </a>
+                <div class="nav-section-title">ETL</div>
+                <a class="nav-item" href="/etl/jobs" data-path="/etl/jobs">
+                    <i class="fas fa-gears"></i><span>Jobs ETL</span>
+                </a>
+                <a class="nav-item" href="/load/jobs" data-path="/load/jobs">
+                    <i class="fas fa-upload"></i><span>Cargas DBF</span>
+                </a>
+                <a class="nav-item" href="/etl/params" data-path="/etl/params">
+                    <i class="fas fa-sliders"></i><span>Parámetros</span>
+                </a>
+                <a class="nav-item" href="/etl/runs" data-path="/etl/runs">
+                    <i class="fas fa-clock-rotate-left"></i><span>Historial</span>
+                </a>
+                <div class="nav-section-title">Consultas</div>
+                <a class="nav-item" href="/consultas/procesos" data-path="/consultas/procesos">
+                    <i class="fas fa-magnifying-glass-chart"></i><span>Procesos</span>
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <small><i class="fas fa-server me-1"></i>Servidor Local</small>
+            </div>
+        </aside>
+        <div class="sidebar-overlay" id="sidebar-overlay"></div>
+        <!-- Main Content -->
+        <div class="main-content">
+            <header class="topbar">
+                <button class="btn btn-link topbar-toggle d-lg-none" id="sidebar-toggle" type="button">
+                    <i class="fas fa-bars"></i>
+                </button>
+                <h1 class="topbar-title">{% block page_title %}Portal de Datos{% endblock %}</h1>
+            </header>
+            <main class="page-content">
+                {% if mensaje %}
+                <div class="alert alert-success alert-dismissible fade show" role="alert">
+                    <i class="fas fa-check-circle me-2"></i>{{ mensaje }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+                {% endif %}
+                {% if error %}
+                <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                    <i class="fas fa-exclamation-circle me-2"></i>{{ error }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+                {% endif %}
+                {% block content %}{% endblock %}
+            </main>
+            <footer class="app-footer">
+                <small><i class="fas fa-server me-1"></i>Portal de Datos Inverpalmas</small>
+            </footer>
+        </div>
+    </div>
+    <!-- Bootstrap 5 JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- jQuery (requerido por DataTables) -->
+    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+    <!-- DataTables JS -->
+    <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.8/js/dataTables.bootstrap5.min.js"></script>
+    <!-- DataTables Responsive JS -->
+    <script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
+    <script src="https://cdn.datatables.net/responsive/2.5.0/js/responsive.bootstrap5.min.js"></script>
+    <!-- Vue 3 -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script src="{{ url_for('static', path='js/app.js') }}"></script>
+    <script src="{{ url_for('static', path='js/scripts.js') }}"></script>
+    <script src="{{ url_for('static', path='js/etl-polling.js') }}"></script>
+    <!-- Toast container -->
+    <div id="toast-container" aria-live="polite" aria-atomic="true"></div>
+    {% block extra_scripts %}{% endblock %}
+</body>
+</html>

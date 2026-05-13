@@ -1,4 +1,4 @@
-# Portal de Datos Inverpalmas
+git# Portal de Datos Inverpalmas
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green.svg)](https://fastapi.tiangolo.com/)
@@ -331,5 +331,6 @@ Para reportar problemas o sugerencias, contactar al equipo de desarrollo.
 
 **Última actualización**: Abril 2026
 **Versión de la aplicación**: 1.0.0
-#   f a s t a p i - f o r m  
+#   f a s t a p i - f o r m 
+ 
  

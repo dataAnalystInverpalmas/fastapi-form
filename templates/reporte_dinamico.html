@@ -1,0 +1,404 @@
+{% extends "base.html" %}
+{% block page_title %}<i class="fas fa-table-columns me-2"></i>Reporte Dinámico{% endblock %}
+
+{% block extra_head %}
+<!-- DataTables Buttons CSS -->
+<link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.bootstrap5.min.css">
+<style>
+  .pivot-select  { min-height: 100px; }
+  .config-card   { background: #f8f9fa; }
+  .table-status-bar { font-size: 0.82rem; color: #6c757d; }
+  /* Panel de filtros */
+  .filter-chips-wrap {
+    display: flex; flex-wrap: wrap; gap: 0.3rem;
+    max-height: 130px; overflow-y: auto;
+    padding: 4px 2px;
+  }
+  .filter-chips-wrap .form-check {
+    background: #fff; border: 1px solid #dee2e6;
+    border-radius: 20px; padding: 2px 10px 2px 28px;
+    font-size: 0.8rem; white-space: nowrap;
+    cursor: pointer; transition: background .15s;
+  }
+  .filter-chips-wrap .form-check:has(input:checked) {
+    background: #0d6efd; border-color: #0d6efd; color: #fff;
+  }
+  .filter-chips-wrap .form-check-input { margin-left: -20px; }
+  #filtros-panel .filter-group-label {
+    font-size: 0.78rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .04em;
+    color: #6c757d; margin-bottom: 4px;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row mt-3 mb-2 align-items-center">
+  <div class="col">
+    <h5 class="mb-0"><i class="fas fa-table me-2 text-primary"></i>Reporte Dinámico — Lonas</h5>
+  </div>
+  <div class="col-auto">
+    <span class="badge bg-secondary" id="badge-cache" style="display:none;" title="Resultado desde caché">
+      <i class="fas fa-bolt me-1"></i>Caché
+    </span>
+  </div>
+</div>
+
+<!-- ===== Panel de configuración ===== -->
+<div class="card config-card border-0 shadow-sm mb-3">
+  <div class="card-body py-3">
+    <div class="row g-3 align-items-start">
+
+      <!-- Filas -->
+      <div class="col-md-3 col-sm-6">
+        <label class="form-label fw-semibold">
+          <i class="fas fa-grip-lines me-1 text-secondary"></i>Filas <small class="text-muted">(GROUP BY)</small>
+        </label>
+        <select id="sel-filas" multiple class="form-select pivot-select" title="Ctrl+clic para selección múltiple">
+          {% for campo in campos %}
+          <option value="{{ campo }}"
+            {% if campo in ["finca", "variedad"] %}selected{% endif %}>
+            {{ campo }}
+          </option>
+          {% endfor %}
+        </select>
+        <div class="form-text">Ctrl+clic para selección múltiple</div>
+      </div>
+
+      <!-- Columnas (pivote) -->
+      <div class="col-md-3 col-sm-6">
+        <label class="form-label fw-semibold">
+          <i class="fas fa-columns me-1 text-secondary"></i>Columnas <small class="text-muted">(Pivote)</small>
+        </label>
+        <select id="sel-columnas" multiple class="form-select pivot-select" title="Opcional – genera columnas dinámicas">
+          {% for campo in campos %}
+          <option value="{{ campo }}">{{ campo }}</option>
+          {% endfor %}
+        </select>
+        <div class="form-text">Opcional — genera columnas dinámicas</div>
+      </div>
+
+      <!-- Valores -->
+      <div class="col-md-2 col-sm-6">
+        <label class="form-label fw-semibold">
+          <i class="fas fa-hashtag me-1 text-secondary"></i>Valores
+        </label>
+        <select id="sel-valores" multiple class="form-select pivot-select">
+          {% for metrica in metricas %}
+          <option value="{{ metrica }}" selected>{{ metrica }}</option>
+          {% endfor %}
+        </select>
+        <div class="form-text">Métricas a agregar</div>
+      </div>
+
+      <!-- Agregación -->
+      <div class="col-md-2 col-sm-6">
+        <label class="form-label fw-semibold">
+          <i class="fas fa-calculator me-1 text-secondary"></i>Agregación
+        </label>
+        <select id="sel-agregacion" class="form-select">
+          {% for agg in agregaciones %}
+          <option value="{{ agg }}" {% if agg == "SUM" %}selected{% endif %}>{{ agg }}</option>
+          {% endfor %}
+        </select>
+        <div class="form-text">&nbsp;</div>
+      </div>
+
+      <!-- Botones -->
+      <div class="col-md-2 col-sm-12 d-flex flex-column gap-2 justify-content-start" style="padding-top:1.8rem;">
+        <button id="btn-generar" class="btn btn-primary w-100">
+          <i class="fas fa-play me-1"></i>Generar
+        </button>
+        <button id="btn-limpiar" class="btn btn-outline-secondary btn-sm w-100">
+          <i class="fas fa-trash-alt me-1"></i>Limpiar caché
+        </button>
+      </div>
+
+    </div><!-- /row -->
+  </div><!-- /card-body -->
+</div><!-- /card -->
+
+<!-- ===== Panel de filtros ===== -->
+<div class="card border-0 shadow-sm mb-3" id="filtros-panel">
+  <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center"
+       style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#filtros-body">
+    <span class="fw-semibold" style="font-size:0.9rem;">
+      <i class="fas fa-filter me-1 text-secondary"></i>Filtros
+      <span id="badge-filtros-activos" class="badge bg-primary ms-2" style="display:none;">0</span>
+    </span>
+    <i class="fas fa-chevron-down text-muted" style="font-size:0.75rem;"></i>
+  </div>
+  <div class="collapse show" id="filtros-body">
+    <div class="card-body py-2">
+      <div id="filtros-loading" class="text-muted" style="font-size:0.82rem;">
+        <span class="spinner-border spinner-border-sm me-1"></span>Cargando opciones…
+      </div>
+      <div id="filtros-content" class="row g-3" style="display:none;">
+        <!-- Se inyecta por JS -->
+      </div>
+      <div class="mt-2" id="filtros-actions" style="display:none;">
+        <button id="btn-limpiar-filtros" class="btn btn-outline-secondary btn-sm">
+          <i class="fas fa-times me-1"></i>Limpiar todos los filtros
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Alerta de error ===== -->
+<div id="alert-error" class="alert alert-danger py-2 d-none" role="alert">
+  <i class="fas fa-exclamation-circle me-2"></i>
+  <span id="alert-error-msg"></span>
+</div>
+
+<!-- ===== Área de resultados ===== -->
+<div id="resultado-area" style="display:none;">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <span class="table-status-bar">
+      <i class="fas fa-check-circle text-success me-1"></i>
+      <span id="total-rows">0</span> filas &bull;
+      <span id="total-cols">0</span> columnas
+    </span>
+  </div>
+  <div class="table-responsive" style="overflow-x:auto;">
+    <table id="tabla-reporte" class="table table-sm table-striped table-hover" style="width:100%"></table>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<!-- JSZip (requerido para exportar a Excel) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<!-- DataTables Buttons -->
+<script src="https://cdn.datatables.net/buttons/2.4.2/js/dataTables.buttons.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.bootstrap5.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.html5.min.js"></script>
+
+<script>
+(function () {
+  'use strict';
+
+  let dataTable = null;
+
+  // ── helpers ──────────────────────────────────────────────────────────────
+  function selectedValues(id) {
+    return Array.from(document.querySelectorAll(`#${id} option:checked`)).map(o => o.value);
+  }
+
+  function showError(msg) {
+    const el = document.getElementById('alert-error');
+    document.getElementById('alert-error-msg').textContent = msg;
+    el.classList.remove('d-none');
+  }
+
+  function hideError() {
+    document.getElementById('alert-error').classList.add('d-none');
+  }
+
+  function setLoading(loading) {
+    const btn = document.getElementById('btn-generar');
+    if (loading) {
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Cargando…';
+    } else {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-play me-1"></i>Generar';
+    }
+  }
+
+  // ── leer filtros seleccionados ────────────────────────────────────────────
+  function getActiveFiltros() {
+    const filtros = {};
+    document.querySelectorAll('#filtros-content .filter-group').forEach(function(group) {
+      const field = group.dataset.field;
+      const checked = Array.from(group.querySelectorAll('input[type=checkbox]:checked'))
+                           .map(cb => cb.value);
+      if (checked.length) filtros[field] = checked;
+    });
+    return filtros;
+  }
+
+  function updateFiltrosBadge() {
+    const count = Object.values(getActiveFiltros()).reduce((s, a) => s + a.length, 0);
+    const badge = document.getElementById('badge-filtros-activos');
+    badge.textContent = count;
+    badge.style.display = count ? '' : 'none';
+  }
+
+  // ── cargar opciones de filtros desde API ──────────────────────────────────
+  function loadFilterOptions() {
+    fetch('/api/reporte-dinamico/filtros')
+      .then(async (res) => {
+        const raw = await res.text();
+        try { return JSON.parse(raw); } catch (_) { return {}; }
+      })
+      .then(function(options) {
+        const loading = document.getElementById('filtros-loading');
+        const content = document.getElementById('filtros-content');
+        const actions = document.getElementById('filtros-actions');
+        loading.style.display = 'none';
+
+        // Orden de presentación
+        const order = ['año', 'finca', 'variedad'];
+        const icons = { 'año': 'fa-calendar', 'finca': 'fa-map-marker-alt', 'variedad': 'fa-seedling' };
+
+        order.forEach(function(field) {
+          if (!options[field] || !options[field].length) return;
+          const col = document.createElement('div');
+          col.className = 'col-12';
+
+          const label = document.createElement('div');
+          label.className = 'filter-group-label';
+          label.innerHTML = `<i class="fas ${icons[field] || 'fa-tag'} me-1"></i>${field}`;
+          col.appendChild(label);
+
+          const wrap = document.createElement('div');
+          wrap.className = 'filter-chips-wrap filter-group';
+          wrap.dataset.field = field;
+
+          options[field].forEach(function(val, idx) {
+            const id = `chk_${field}_${idx}`;
+            const check = document.createElement('div');
+            check.className = 'form-check';
+            check.innerHTML =
+              `<input class="form-check-input" type="checkbox" id="${id}" value="${val}">` +
+              `<label class="form-check-label" for="${id}">${val}</label>`;
+            check.querySelector('input').addEventListener('change', updateFiltrosBadge);
+            wrap.appendChild(check);
+          });
+
+          col.appendChild(wrap);
+          content.appendChild(col);
+        });
+
+        content.style.display = '';
+        actions.style.display = '';
+      })
+      .catch(function() {
+        document.getElementById('filtros-loading').textContent = 'No se pudieron cargar los filtros.';
+      });
+  }
+
+  // ── construir DataTable ───────────────────────────────────────────────────
+  function buildTable(columns, data, totalRows) {
+    if (dataTable) {
+      dataTable.destroy();
+      $('#tabla-reporte').empty();
+    }
+
+    const dtColumns = columns.map(function(c) { return { title: c }; });
+
+    dataTable = $('#tabla-reporte').DataTable({
+      columns:    dtColumns,
+      data:       data,
+      scrollX:    true,
+      pageLength: 25,
+      lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, 'Todo']],
+      dom: "<'row'<'col-sm-12 col-md-6'B><'col-sm-12 col-md-6'f>>" +
+           "<'row'<'col-sm-12'tr>>" +
+           "<'row'<'col-sm-12 col-md-5'i><'col-sm-12 col-md-7'p>>",
+      buttons: [
+        {
+          extend:    'excelHtml5',
+          text:      '<i class="fas fa-file-excel me-1"></i>Excel',
+          className: 'btn btn-success btn-sm',
+          title:     'Reporte Dinámico Lonas',
+          exportOptions: { columns: ':visible' },
+        },
+        {
+          extend:    'csvHtml5',
+          text:      '<i class="fas fa-file-csv me-1"></i>CSV',
+          className: 'btn btn-outline-secondary btn-sm',
+          title:     'Reporte Dinámico Lonas',
+          exportOptions: { columns: ':visible' },
+        },
+      ],
+      language: {
+        lengthMenu:    'Mostrar _MENU_ filas',
+        zeroRecords:   'No se encontraron resultados',
+        info:          'Mostrando _START_ a _END_ de _TOTAL_ filas',
+        infoEmpty:     'Sin datos',
+        infoFiltered:  '(filtrado de _MAX_ filas totales)',
+        search:        'Buscar:',
+        paginate: { first: '«', last: '»', next: '›', previous: '‹' },
+      },
+      order: [],
+    });
+
+    document.getElementById('total-rows').textContent = totalRows;
+    document.getElementById('total-cols').textContent  = columns.length;
+    // FIX: usar 'block' no '' para no quedar tapado por regla CSS
+    document.getElementById('resultado-area').style.display = 'block';
+  }
+
+  // ── acción principal ──────────────────────────────────────────────────────
+  document.getElementById('btn-generar').addEventListener('click', function () {
+    hideError();
+
+    const filas      = selectedValues('sel-filas');
+    const columnas   = selectedValues('sel-columnas');
+    const valores    = selectedValues('sel-valores');
+    const agregacion = document.getElementById('sel-agregacion').value;
+    const filtros    = getActiveFiltros();
+
+    if (!filas.length)   { showError('Debe seleccionar al menos una Fila.');   return; }
+    if (!valores.length) { showError('Debe seleccionar al menos un Valor.'); return; }
+
+    setLoading(true);
+    document.getElementById('badge-cache').style.display = 'none';
+
+    const t0 = performance.now();
+
+    fetch('/api/reporte-dinamico', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ filas, columnas, valores, agregacion, filtros }),
+    })
+    .then(async function(res) {
+      const raw = await res.text();
+      let parsed = null;
+      try { parsed = raw ? JSON.parse(raw) : null; } catch (_) { parsed = null; }
+
+      if (!res.ok) {
+        throw new Error(parsed?.detail || parsed?.message || raw || `HTTP ${res.status}`);
+      }
+      if (!parsed) throw new Error('Respuesta inválida del servidor (no JSON).');
+      return parsed;
+    })
+    .then(function(response) {
+      buildTable(response.columns, response.data, response.total_rows);
+      const elapsed = Math.round(performance.now() - t0);
+      const cacheEl = document.getElementById('badge-cache');
+      cacheEl.title = `Tiempo: ${elapsed} ms`;
+      if (elapsed < 80) cacheEl.style.display = '';
+    })
+    .catch(function(err) { showError(err.message); })
+    .finally(function() { setLoading(false); });
+  });
+
+  // ── limpiar caché ─────────────────────────────────────────────────────────
+  document.getElementById('btn-limpiar').addEventListener('click', function () {
+    const btn = this;
+    fetch('/api/reporte-dinamico/cache/clear', { method: 'POST' }).then(function() {
+      document.getElementById('badge-cache').style.display = 'none';
+      btn.innerHTML = '<i class="fas fa-check me-1"></i>Caché vaciado';
+      setTimeout(function() {
+        btn.innerHTML = '<i class="fas fa-trash-alt me-1"></i>Limpiar caché';
+      }, 2000);
+    });
+  });
+
+  // ── limpiar filtros ───────────────────────────────────────────────────────
+  document.getElementById('btn-limpiar-filtros').addEventListener('click', function () {
+    document.querySelectorAll('#filtros-content input[type=checkbox]')
+            .forEach(function(cb) { cb.checked = false; });
+    updateFiltrosBadge();
+  });
+
+  // ── inicialización ────────────────────────────────────────────────────────
+  loadFilterOptions();
+
+})();
+</script>
+{% endblock %}

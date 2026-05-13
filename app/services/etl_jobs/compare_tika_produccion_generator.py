@@ -1,0 +1,383 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
+
+from app.core.settings import settings
+from app.services.dbf_reader import normalize_path
+from app.services.etl_helpers import execute_query, safe_int_series, validate_columns
+
+
+FLOWER_MAP = {
+    "CLAVEL": "CLA",
+    "MINICLAVEL": "CM0",
+    "MINI": "CM0",
+    "CLA": "CLA",
+    "CM0": "CM0",
+}
+
+PROYECCIONES_TYPE_MAP = {
+    "RE": "Real",
+    "REAL": "Real",
+    "AJ": "Proy_Aj",
+    "PROY_AJ": "Proy_Aj",
+    "IN": "Proy_In",
+    "PROY_IN": "Proy_In",
+    "PT": "Pto",
+    "PTO": "Pto",
+}
+
+
+def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df.columns = (
+        df.columns.astype(str)
+        .str.strip()
+        .str.lower()
+        .str.replace(" ", "_", regex=False)
+        .str.replace("-", "_", regex=False)
+    )
+    return df
+
+
+def _normalize_text(series: pd.Series) -> pd.Series:
+    return series.astype(str).str.strip().str.replace(" ", "_", regex=False)
+
+
+def _normalize_date(series: pd.Series) -> pd.Series:
+    return pd.to_datetime(series, errors="coerce").dt.normalize()
+
+
+def _ajustar_a_lunes(series: pd.Series) -> pd.Series:
+    fechas = _normalize_date(series)
+    return fechas - pd.to_timedelta(fechas.dt.weekday.fillna(0), unit="D")
+
+
+def _load_dates_and_variedades() -> tuple[pd.DataFrame, pd.DataFrame]:
+    rows_dates = execute_query(
+        "SELECT aass, fecha, año, mes, semana FROM dates WHERE dia_semana=1"
+    ) or []
+    df_dates = pd.DataFrame(rows_dates, columns=["aass", "fecha", "año", "mes", "semana"])
+    if df_dates.empty:
+        raise RuntimeError("No se encontraron fechas lunes en la tabla dates.")
+    df_dates["aass"] = safe_int_series(df_dates["aass"]).astype(int)
+    df_dates["fecha"] = _normalize_date(df_dates["fecha"])
+    df_dates["año"] = safe_int_series(df_dates["año"]).astype(int)
+    df_dates["mes"] = safe_int_series(df_dates["mes"]).astype(int)
+    df_dates["semana"] = safe_int_series(df_dates["semana"]).astype(int)
+
+    rows_vari = execute_query(
+        """
+        SELECT v.nombre AS variedad, c.nombre AS color, v.codflor AS flor
+        FROM ld_variedades AS v
+        INNER JOIN ld_colores AS c ON c.codigo = v.codgcol
+        WHERE v.codflor IN ('CLA','CM0') AND v.activo = 1
+        """
+    ) or []
+    df_vari = pd.DataFrame(rows_vari, columns=["variedad", "color", "flor"])
+    if df_vari.empty:
+        raise RuntimeError("No se encontraron variedades activas para CLA/CM0.")
+    df_vari["variedad"] = _normalize_text(df_vari["variedad"])
+    df_vari["color"] = _normalize_text(df_vari["color"])
+    df_vari["flor"] = df_vari["flor"].astype(str).str.strip()
+    return df_dates, df_vari
+
+
+def _resolve_modelos_tika(params: dict[str, Any] | None) -> tuple[int, int, int, int]:
+    defaults = list(settings.COMPARE_TIKA_DEFAULT_MODELS)
+    raw_values = list((params or {}).get("modelos_tika") or [])
+    parsed = [int(value) for value in raw_values if str(value).strip()]
+    if not parsed:
+        parsed = defaults
+    if len(parsed) < 4:
+        parsed = parsed + defaults[len(parsed):]
+    return tuple(parsed[:4])
+
+
+def _load_proyecciones_compare(df_vari: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    path = Path(normalize_path(settings.PROYECCIONES_OUTPUT_PATH))
+    if not path.exists():
+        raise FileNotFoundError("No existe proyecciones.csv. Ejecuta primero el job 'proyecciones_csv'.")
+
+    df = pd.read_csv(path, low_memory=False)
+    df = _normalize_columns(df)
+    required = {"fecha", "flor", "tipo", "tallos", "variedad", "ncolor"}
+    if "variedad" not in df.columns and "nvari" in df.columns:
+        df = df.rename(columns={"nvari": "variedad"})
+    if "ncolor" not in df.columns and "color" in df.columns:
+        df = df.rename(columns={"color": "ncolor"})
+    validate_columns(df, required, path.name)
+
+    df["fecha"] = _normalize_date(df["fecha"])
+    df["variedad"] = _normalize_text(df["variedad"])
+    df["color"] = _normalize_text(df["ncolor"])
+    df["flor"] = df["flor"].astype(str).str.strip().replace(FLOWER_MAP)
+    df["tallos"] = pd.to_numeric(df["tallos"], errors="coerce").fillna(0) * settings.COMPARE_TIKA_TALLOS_FACTOR
+    df["tipo"] = df["tipo"].astype(str).str.strip().str.upper().replace(PROYECCIONES_TYPE_MAP)
+
+    base_columns = ["fecha", "flor", "variedad", "color", "tallos", "tipo"]
+    df = df[base_columns].copy()
+    datos_re = df[df["tipo"] == "Real"].copy()
+    datos_in = df[df["tipo"] == "Proy_In"].copy()
+    datos_aj = df[df["tipo"] == "Proy_Aj"].copy()
+    datos_pt = df[df["tipo"] == "Pto"].copy()
+    return datos_re, datos_in, datos_aj, datos_pt
+
+
+def _load_despachos() -> pd.DataFrame:
+    path = Path(normalize_path(settings.COMPARE_TIKA_DESPACHOS_PATH))
+    if not path.exists():
+        raise FileNotFoundError(f"No existe el archivo de despachos: {path}")
+    df = pd.read_excel(path)
+    df = _normalize_columns(df)
+    validate_columns(df, {"fecha", "flor", "variedad", "color", "tallos", "tipo"}, path.name)
+    df["fecha"] = _ajustar_a_lunes(df["fecha"])
+    df["flor"] = df["flor"].astype(str).str.strip().replace(FLOWER_MAP)
+    df["variedad"] = _normalize_text(df["variedad"])
+    df["color"] = _normalize_text(df["color"])
+    df["tallos"] = pd.to_numeric(df["tallos"], errors="coerce").fillna(0)
+    df["tipo"] = df["tipo"].astype(str).str.strip()
+    return df[["fecha", "flor", "variedad", "color", "tallos", "tipo"]].copy()
+
+
+def _load_quipus_compare(df_dates: pd.DataFrame, df_vari: pd.DataFrame) -> pd.DataFrame:
+    path = Path(normalize_path(settings.QUIPUS_OUTPUT_PATH))
+    if not path.exists():
+        raise FileNotFoundError("No existe quipus.csv. Ejecuta primero el job 'quipus_vs_proy'.")
+    df = pd.read_csv(path, low_memory=False)
+    df = _normalize_columns(df)
+    if "cantidad" in df.columns:
+        df = df.rename(columns={"cantidad": "tallos"})
+    if "sem_prod" not in df.columns:
+        raise ValueError("quipus.csv no contiene la columna sem_prod.")
+    validate_columns(df, {"sem_prod", "flor", "variedad", "tallos"}, path.name)
+    df["sem_prod"] = safe_int_series(df["sem_prod"]).astype(int)
+    df["variedad"] = _normalize_text(df["variedad"])
+    df["flor"] = df["flor"].astype(str).str.strip().replace(FLOWER_MAP)
+    df["tallos"] = pd.to_numeric(df["tallos"], errors="coerce").fillna(0) * settings.COMPARE_TIKA_TALLOS_FACTOR
+    df = pd.merge(df, df_dates[["aass", "fecha"]], left_on="sem_prod", right_on="aass", how="left")
+    df = pd.merge(df, df_vari[["variedad", "color", "flor"]], on=["variedad", "flor"], how="left")
+    df["tipo"] = "Quipus"
+    df = (
+        df.groupby(["fecha", "flor", "variedad", "color", "tipo"], dropna=False)["tallos"]
+        .sum()
+        .reset_index()
+    )
+    return df[["fecha", "flor", "variedad", "color", "tallos", "tipo"]].copy()
+
+
+def _process_bajas_perdidas(modelo_tika: int, tipo: str, df_dates: pd.DataFrame, df_vari: pd.DataFrame) -> pd.DataFrame:
+    path = Path(normalize_path(f"//svrinverpalmas/usuarios/Hilder/Data/tika/{modelo_tika}/guarde.csv"))
+    if not path.exists():
+        raise FileNotFoundError(f"No existe guarde.csv para modelo Tika {modelo_tika}: {path}")
+    df = pd.read_csv(path, thousands=",")
+    df = _normalize_columns(df).fillna(0)
+    validate_columns(df, {"semana", "variedad", "bajas", "perdidas"}, path.name)
+    df = pd.merge(
+        df.rename(columns={"semana": "aass"}),
+        df_dates[["fecha", "aass"]],
+        on="aass",
+        how="left",
+    ).drop(columns=["aass"])
+    df["tallos"] = pd.to_numeric(df["bajas"], errors="coerce").fillna(0) + pd.to_numeric(df["perdidas"], errors="coerce").fillna(0)
+    df["variedad"] = _normalize_text(df["variedad"])
+    df = pd.merge(df, df_vari, on="variedad", how="left")
+    df["tipo"] = tipo
+    df = (
+        df.groupby(["fecha", "flor", "variedad", "color", "tipo"], dropna=False)["tallos"]
+        .sum()
+        .reset_index()
+    )
+    return df[["fecha", "flor", "variedad", "color", "tallos", "tipo"]].copy()
+
+
+def _process_salvamento(modelo_tika: int, tipo: str, df_dates: pd.DataFrame, df_vari: pd.DataFrame) -> pd.DataFrame:
+    path = Path(normalize_path(f"//svrinverpalmas/usuarios/Hilder/Data/tika/{modelo_tika}/salvamento.csv"))
+    if not path.exists():
+        raise FileNotFoundError(f"No existe salvamento.csv para modelo Tika {modelo_tika}: {path}")
+    df = pd.read_csv(path, thousands=",")
+    df = _normalize_columns(df)
+    if "itemdemanda" in df.columns and "item_demanda" not in df.columns:
+        df = df.rename(columns={"itemdemanda": "item_demanda"})
+    validate_columns(df, {"semana", "cantidad"}, path.name)
+    variedad_col = "item_demanda" if "item_demanda" in df.columns else "variedad"
+    df = pd.merge(
+        df.rename(columns={"semana": "aass"}),
+        df_dates[["fecha", "aass"]],
+        on="aass",
+        how="left",
+    ).drop(columns=["aass"])
+    df["variedad"] = _normalize_text(df[variedad_col])
+    df["tallos"] = pd.to_numeric(df["cantidad"], errors="coerce").fillna(0)
+    df = pd.merge(df, df_vari, on="variedad", how="left")
+    df["tipo"] = tipo
+    df = (
+        df.groupby(["fecha", "flor", "variedad", "color", "tipo"], dropna=False)["tallos"]
+        .sum()
+        .reset_index()
+    )
+    return df[["fecha", "flor", "variedad", "color", "tallos", "tipo"]].copy()
+
+
+def _process_tika_projection(modelo_tika: int, tipo: str, df_dates: pd.DataFrame, df_vari: pd.DataFrame) -> pd.DataFrame:
+    files = [
+        Path(normalize_path(f"//svrinverpalmas/Usuarios/Hilder/Data/tika/{modelo_tika}/proy1.csv")),
+        Path(normalize_path(f"//svrinverpalmas/Usuarios/Hilder/Data/tika/{modelo_tika}/proy2.csv")),
+    ]
+    frames: list[pd.DataFrame] = []
+    for path in files:
+        if not path.exists():
+            raise FileNotFoundError(f"No existe archivo Tika de proyeccion para modelo {modelo_tika}: {path}")
+        frames.append(pd.read_csv(path, thousands=",", low_memory=False))
+    df = pd.concat(frames, ignore_index=True)
+    df = _normalize_columns(df)
+    validate_columns(df, {"semanaproducion", "variedad", "cantidad"}, f"tika/{modelo_tika}/proy1|proy2.csv")
+    df = df.rename(columns={"semanaproducion": "aass"})
+    if "flor" in df.columns:
+        df["flor"] = df["flor"].astype(str).str.strip().replace(FLOWER_MAP)
+    if "color" in df.columns:
+        df["color"] = _normalize_text(df["color"])
+    df["variedad"] = _normalize_text(df["variedad"])
+    df["tallos"] = pd.to_numeric(df["cantidad"], errors="coerce").fillna(0)
+    df = pd.merge(df, df_dates[["aass", "fecha"]], on="aass", how="left")
+    df = pd.merge(df, df_vari, on="variedad", how="left", suffixes=("", "_db"))
+    if "flor_db" in df.columns:
+        df["flor"] = df["flor_db"].combine_first(df.get("flor"))
+    if "color_db" in df.columns:
+        df["color"] = df["color_db"].combine_first(df.get("color"))
+    df["tipo"] = tipo
+    df = (
+        df.groupby(["fecha", "flor", "variedad", "color", "tipo"], dropna=False)["tallos"]
+        .sum()
+        .reset_index()
+    )
+    return df[["fecha", "flor", "variedad", "color", "tallos", "tipo"]].copy()
+
+
+def _load_demanda(df_dates: pd.DataFrame, df_vari: pd.DataFrame) -> pd.DataFrame:
+    path = Path(normalize_path(settings.COMPARE_TIKA_DEMANDA_PATH))
+    if not path.exists():
+        raise FileNotFoundError(f"No existe archivo de demanda: {path}")
+    df = pd.read_csv(path, thousands=".")
+    df = _normalize_columns(df)
+    validate_columns(df, {"semana", "item_demanda", "cantidad"}, path.name)
+    df = df[["semana", "item_demanda", "precio", "cantidad", "submercado"]].copy()
+    df["cantidad"] = df["cantidad"].replace({",": ""}, regex=True)
+    df["tallos"] = pd.to_numeric(df["cantidad"], errors="coerce").astype("Int64")
+    df = df.rename(columns={"semana": "aass", "item_demanda": "variedad"})
+    df["aass"] = pd.to_numeric(df["aass"], errors="coerce").astype("Int64")
+    df["variedad"] = _normalize_text(df["variedad"])
+    df = pd.merge(df, df_vari, on="variedad", how="left")
+    df["tipo"] = "demanda"
+    df = pd.merge(df, df_dates[["fecha", "aass"]], on="aass", how="left").drop(columns=["aass"])
+    df = df[df["fecha"].notna()].copy()
+    return df[["fecha", "flor", "variedad", "color", "tallos", "tipo"]].copy()
+
+
+def _load_prueba_consuelo(df_vari: pd.DataFrame) -> pd.DataFrame:
+    path = Path(normalize_path(r"\\svrinverpalmas\Usuarios\Hilder\Data\Pto 2026vPRUEBA.xlsx"))
+    if not path.exists():
+        return pd.DataFrame(columns=["fecha", "flor", "variedad", "color", "tallos", "tipo"])
+    df = pd.read_excel(path)
+    df = _normalize_columns(df)
+    validate_columns(df, {"fecha", "flor", "nvari", "tallos"}, path.name)
+    df = (
+        df.groupby(["fecha", "flor", "nvari"], dropna=False)["tallos"]
+        .sum()
+        .reset_index()
+        .rename(columns={"nvari": "variedad"})
+    )
+    df["variedad"] = _normalize_text(df["variedad"])
+    df = pd.merge(df, df_vari.drop(columns=["flor"]), on="variedad", how="left")
+    df["tipo"] = "PTNuevo"
+    df["tallos"] = pd.to_numeric(df["tallos"], errors="coerce").fillna(0) * settings.COMPARE_TIKA_TALLOS_FACTOR
+    return df[["fecha", "flor", "variedad", "color", "tallos", "tipo"]].copy()
+
+
+def generate_compare_tika_produccion_report(params: dict[str, Any] | None = None) -> str:
+    modelo_tika_a, modelo_tika_b, modelo_tika_c, modelo_tika_d = _resolve_modelos_tika(params)
+    df_dates, df_vari = _load_dates_and_variedades()
+
+    datos_re, datos_in, datos_aj, datos_pt = _load_proyecciones_compare(df_vari)
+    df_consuelo = _load_prueba_consuelo(df_vari)
+    df_despachos = _load_despachos()
+    df_quipus = _load_quipus_compare(df_dates, df_vari)
+    df_demanda = _load_demanda(df_dates, df_vari)
+
+    df_bajas_a = _process_bajas_perdidas(modelo_tika_a, "Bajas_A", df_dates, df_vari)
+    df_bajas_b = _process_bajas_perdidas(modelo_tika_b, "Bajas_B", df_dates, df_vari)
+    df_bajas_c = _process_bajas_perdidas(modelo_tika_c, "Bajas_C", df_dates, df_vari)
+    df_bajas_d = _process_bajas_perdidas(modelo_tika_d, "Bajas_D", df_dates, df_vari)
+
+    df_rota_a = _process_salvamento(modelo_tika_a, "Rota_A", df_dates, df_vari)
+    df_rota_b = _process_salvamento(modelo_tika_b, "Rota_B", df_dates, df_vari)
+    df_rota_c = _process_salvamento(modelo_tika_c, "Rota_C", df_dates, df_vari)
+    df_rota_d = _process_salvamento(modelo_tika_d, "Rota_D", df_dates, df_vari)
+
+    df_tika_a = _process_tika_projection(modelo_tika_a, "Tika_A", df_dates, df_vari)
+    df_tika_b = _process_tika_projection(modelo_tika_b, "Tika_B", df_dates, df_vari)
+    df_tika_c = _process_tika_projection(modelo_tika_c, "Tika_C", df_dates, df_vari)
+    df_tika_d = _process_tika_projection(modelo_tika_d, "Tika_D", df_dates, df_vari)
+
+    #cutoff = pd.Timestamp(settings.COMPARE_TIKA_D_CUTOFF_DATE)
+    #df_tika_c = pd.concat([df_tika_d.query("fecha <= @cutoff"), df_tika_c], ignore_index=True)
+    #df_tika_c["tipo"] = "Tika_C"
+    #df_rota_c = pd.concat([df_rota_d.query("fecha <= @cutoff"), df_rota_c], ignore_index=True)
+    #df_rota_c["tipo"] = "Rota_C"
+    #df_bajas_c = pd.concat([df_bajas_b.query("fecha <= @cutoff"), df_bajas_c], ignore_index=True)
+    #df_bajas_c["tipo"] = "Bajas_C"
+
+    frames = [
+        df_despachos,
+        df_demanda,
+        df_tika_a,
+        df_tika_b,
+        df_tika_c,
+        df_tika_d,
+        df_rota_a,
+        df_rota_b,
+        df_rota_c,
+        df_rota_d,
+        df_bajas_c,
+        df_bajas_d,
+        df_bajas_b,
+        df_bajas_a,
+        datos_re,
+        datos_in,
+        datos_aj,
+        datos_pt,
+        df_quipus,
+    ]
+
+    for df in frames:
+        if df.empty:
+            continue
+        df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce")
+        df["flor"] = df["flor"].astype(str).str.strip().replace(FLOWER_MAP)
+        df["variedad"] = _normalize_text(df["variedad"])
+        df["color"] = _normalize_text(df["color"])
+        df["tipo"] = df["tipo"].astype(str)
+        df["tallos"] = pd.to_numeric(df["tallos"], errors="coerce").fillna(0)
+
+    df_all = pd.concat(frames, axis=0, ignore_index=True)
+    df_all["fecha"] = pd.to_datetime(df_all["fecha"], errors="coerce")
+    df = pd.merge(df_all, df_dates, on="fecha", how="left")
+    df = df[df["año"].notna()].copy()
+    df["aass"] = safe_int_series(df["aass"]).astype(int)
+    df["año"] = safe_int_series(df["año"]).astype(int)
+    df["mes"] = safe_int_series(df["mes"]).astype(int)
+    df["semana"] = safe_int_series(df["semana"]).astype(int)
+    df = df[df["año"] > 2022].copy()
+    df["ntipo"] = df["tipo"] + df["año"].astype(str)
+
+    output_csv = Path(normalize_path(settings.COMPARE_TIKA_OUTPUT_PATH))
+    output_csv.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(output_csv, index=False, encoding="utf-8-sig")
+
+    output_excel = Path(normalize_path(settings.COMPARE_TIKA_OUTPUT_EXCEL_PATH))
+    output_excel.parent.mkdir(parents=True, exist_ok=True)
+    df.to_excel(output_excel, index=False)
+
+    return str(output_csv)

@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portal de Datos Inverpalmas</title>
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- DataTables CSS -->
+    <link href="https://cdn.datatables.net/1.13.8/css/dataTables.bootstrap5.min.css" rel="stylesheet">
+    <!-- DataTables Responsive CSS -->
+    <link href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.bootstrap5.min.css" rel="stylesheet">
+    <!-- Font Awesome para iconos -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', path='css/styles.css') }}">
+</head>
+<body>
+    <div class="container-fluid">
+        <header class="bg-gradient py-5 mb-4">
+            <div class="container">
+                <h1 class="display-4 text-white mb-2"><i class="fas fa-database me-2"></i>Portal de Datos Inverpalmas</h1>
+                <p class="text-white-50 fs-5">Consulta y visualiza datos de archivos .dbf de manera rápida y eficiente</p>
+            </div>
+        </header>
+
+        <main class="container py-4">
+            <section class="form-section mb-5">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-light border-bottom">
+                        <h5 class="card-title mb-0"><i class="fas fa-search me-2"></i>Parámetros de consulta</h5>
+                    </div>
+                    <div class="card-body">
+                        <form method="POST" action="/consultar">
+                            <div class="row g-3">
+                                <div class="col-md-9">
+                                    <label for="ruta_archivo" class="form-label fw-semibold">Ruta del archivo DBF:</label>
+                                    <input 
+                                        type="text" 
+                                        id="ruta_archivo" 
+                                        name="ruta_archivo" 
+                                        class="form-control form-control-lg"
+                                        value="{{ ruta_archivo or default_path }}"
+                                        placeholder="Ej: \\svrinverpalmas\produc\LD_BCULT\hijos2026.dbf"
+                                        required
+                                    >
+                                    <small class="d-block text-muted mt-2"><i class="fas fa-lightbulb me-1"></i>Para rutas de red, use doble backslash: \\servidor\carpeta\archivo.dbf</small>
+                                </div>
+                                
+                                <div class="col-md-3">
+                                    <label for="limite" class="form-label fw-semibold">Límite de registros:</label>
+                                    <input 
+                                        type="number" 
+                                        id="limite" 
+                                        name="limite" 
+                                        class="form-control form-control-lg"
+                                        value="{{ limite if limite else 100 }}"
+                                        min="1"
+                                        max="1000000"
+                                    >
+                                </div>
+                            </div>
+                            
+                            <div class="d-grid gap-2 d-md-flex justify-content-end mt-4">
+                                <button type="submit" class="btn btn-primary btn-lg">
+                                    <i class="fas fa-magnifying-glass me-2"></i>Consultar
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </section>
+
+            {% if error %}
+            <section class="alert-section mb-4">
+                <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                    <i class="fas fa-exclamation-circle me-2"></i>
+                    <strong>Error:</strong> {{ error }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            </section>
+            {% endif %}
+
+            {% if data %}
+            <section class="results-section">
+                <div class="card border-0 shadow-sm mb-4">
+                    <div class="card-header bg-light border-bottom d-flex justify-content-between align-items-center flex-wrap gap-2">
+                        <h5 class="card-title mb-0"><i class="fas fa-table me-2"></i>Resultados de la consulta</h5>
+                        <div class="stats">
+                            <span class="badge bg-info"><i class="fas fa-database me-1"></i>Total: {{ data.total_records }}</span>
+                            <span class="badge bg-success"><i class="fas fa-eye me-1"></i>Mostrados: {{ data.displayed_records }}</span>
+                        </div>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0 data-table" id="dataTable">
+                                <thead class="table-light">
+                                    <tr>
+                                        {% for field in data.fields %}
+                                        <th><i class="fas fa-chevron-right text-muted me-1"></i>{{ field }}</th>
+                                        {% endfor %}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for record in data.records %}
+                                    <tr>
+                                        {% for field in data.fields %}
+                                        <td>{{ record.get(field, '') }}</td>
+                                        {% endfor %}
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            {% endif %}
+        </main>
+
+        <footer class="bg-light border-top mt-5 py-4">
+            <div class="container text-center text-muted">
+                <p class="mb-0"><small><i class="fas fa-server me-1"></i>Servidor local - Portal de Datos Inverpalmas</small></p>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Bootstrap 5 JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- jQuery (requerido por DataTables) -->
+    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+    <!-- DataTables JS -->
+    <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.8/js/dataTables.bootstrap5.min.js"></script>
+    <!-- DataTables Responsive JS -->
+    <script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
+    <script src="https://cdn.datatables.net/responsive/2.5.0/js/responsive.bootstrap5.min.js"></script>
+    
+    <script src="{{ url_for('static', path='js/scripts.js') }}"></script>
+</body>
+</html>
