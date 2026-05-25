@@ -32,6 +32,12 @@ from app.services.query_processes import list_query_processes
 
 router = APIRouter()
 
+_ETL_JOBS_EXTRA_IDS = {
+    "load_process_guarde",
+    "load_process_siembras",
+    "load_siembras_teo_real",
+}
+
 
 templates = Jinja2Templates(directory=str(settings.TEMPLATES_DIR))
 
@@ -90,7 +96,39 @@ def consultar_dbf(
 
 @router.get("/etl/jobs", response_class=HTMLResponse)
 def etl_jobs_page(request: Request):
-    jobs = [job for job in list_jobs_with_state() if not str(job.get("job_id", "")).startswith("load_")]
+    status_rows = list_jobs_with_state()
+    jobs = []
+    seen_job_ids: set[str] = set()
+
+    for job in status_rows:
+        job_id = str(job.get("job_id", ""))
+        if job_id.startswith("load_") and job_id not in _ETL_JOBS_EXTRA_IDS:
+            continue
+        seen_job_ids.add(job_id)
+        jobs.append(job)
+
+    catalog = {job.job_id: job for job in list_jobs_from_catalog()}
+    for job_id in sorted(_ETL_JOBS_EXTRA_IDS):
+        if job_id in seen_job_ids:
+            continue
+        job_def = catalog.get(job_id)
+        if not job_def:
+            continue
+        jobs.append(
+            {
+                "job_id": job_def.job_id,
+                "name": job_def.name,
+                "description": job_def.description,
+                "allows_parallel": 1 if job_def.allows_parallel else 0,
+                "timeout_seconds": job_def.timeout_seconds,
+                "is_active": 1,
+                "updated_at": None,
+                "last_status": None,
+                "last_started_at": None,
+            }
+        )
+
+    jobs.sort(key=lambda item: str(item.get("name", "")).lower())
     return templates.TemplateResponse(
         "etl_jobs.html",
         {
@@ -174,7 +212,7 @@ def run_etl_job(job_id: str):
 
 @router.get("/load/jobs", response_class=HTMLResponse)
 def load_jobs_page(request: Request):
-    jobs = [job for job in list_jobs_with_state() if str(job.get("job_id", "")).startswith("load_")]
+    jobs = [job for job in list_jobs_with_state() if str(job.get("job_id", "")).startswith("load_") and str(job.get("job_id", "")) not in _ETL_JOBS_EXTRA_IDS]
     return templates.TemplateResponse(
         "load_jobs.html",
         {

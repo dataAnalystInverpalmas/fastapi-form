@@ -103,7 +103,11 @@ def generate_bajas_exportado_reports() -> str:
     )
 
     df_end = pd.merge(df_exp_grouped, df_bajas, how="left", on=["flor", "periodo"])
+
     df_export = pd.merge(df_end, date_dim_month[["periodo", "fecha"]], how="left", on="periodo")
+    # Extraer año y mes del campo periodo
+    df_export["año"] = df_export["periodo"].astype(str).str[:4]
+    df_export["mes"] = df_export["periodo"].astype(str).str[4:6]
     df_export["porc_bajas"] = df_export["bajas"] / df_export["expble"]
 
     output_dir = Path(settings.EXCEL_OUTPUT_DIR)

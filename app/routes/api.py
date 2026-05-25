@@ -36,6 +36,12 @@ from app.services.pivot_service import (
 
 router = APIRouter(prefix="/api")
 
+_ETL_JOBS_EXTRA_IDS = {
+    "load_process_guarde",
+    "load_process_siembras",
+    "load_siembras_teo_real",
+}
+
 
 class PivotRequest(BaseModel):
     filas: list[str]
@@ -83,11 +89,13 @@ def api_list_etl_jobs():
     catalog = {job.job_id: job for job in list_jobs_from_catalog()}
 
     jobs = []
+    seen_job_ids: set[str] = set()
     for row in list_jobs_with_state():
-        if str(row.get("job_id", "")).startswith("load_"):
-            continue
         job_id = str(row.get("job_id", ""))
+        if job_id.startswith("load_") and job_id not in _ETL_JOBS_EXTRA_IDS:
+            continue
         job_def = catalog.get(job_id)
+        seen_job_ids.add(job_id)
         jobs.append(
             {
                 **_serialize_row(row),
@@ -95,6 +103,32 @@ def api_list_etl_jobs():
                 "default_params": (job_def.default_params or {}) if job_def else {},
             }
         )
+
+    # Si estos jobs no existen todavia en etl_jobs (bootstrap pendiente),
+    # exponerlos igualmente desde el catalogo para que aparezcan en la tabla ETL.
+    for job_id in sorted(_ETL_JOBS_EXTRA_IDS):
+        if job_id in seen_job_ids:
+            continue
+        job_def = catalog.get(job_id)
+        if not job_def:
+            continue
+        jobs.append(
+            {
+                "job_id": job_def.job_id,
+                "name": job_def.name,
+                "description": job_def.description,
+                "allows_parallel": 1 if job_def.allows_parallel else 0,
+                "timeout_seconds": job_def.timeout_seconds,
+                "is_active": 1,
+                "updated_at": None,
+                "last_status": None,
+                "last_started_at": None,
+                "supports_params": bool(job_def.supports_params),
+                "default_params": job_def.default_params or {},
+            }
+        )
+
+    jobs.sort(key=lambda item: str(item.get("name", "")).lower())
     return jobs
 
 
@@ -103,7 +137,7 @@ def api_list_load_jobs():
     jobs = [
         _serialize_row(job)
         for job in list_jobs_with_state()
-        if str(job.get("job_id", "")).startswith("load_")
+        if str(job.get("job_id", "")).startswith("load_") and str(job.get("job_id", "")) not in _ETL_JOBS_EXTRA_IDS
     ]
     return jobs
 

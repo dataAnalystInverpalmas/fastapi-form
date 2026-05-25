@@ -122,7 +122,7 @@ function isActive(job) {
               <tr v-if="!filteredJobs.length">
                 <td colspan="5" class="text-center text-muted py-3">Sin resultados</td>
               </tr>
-              <tr v-for="job in filteredJobs" :key="job.job_id">
+              <tr v-for="job in filteredJobs" :key="job.job_id" :id="job.job_id">
                 <td><code>{{ job.job_id }}</code><br><strong>{{ job.name }}</strong></td>
                 <td class="text-muted small">{{ job.description }}</td>
                 <td>

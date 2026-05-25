@@ -13,6 +13,10 @@ from app.services.etl_jobs.pedidos_surtidos_generator import generate_pedidos_su
 from app.services.etl_jobs.quipus_vs_proy_generator import generate_quipus_vs_proy_artifacts
 from app.services.etl_jobs.resumir_curvas_usadas_generator import generate_resumir_curvas_usadas
 from app.services.etl_jobs.tabla_curvas_clavel_generator import generate_tabla_curvas_clavel
+from app.services.etl_jobs.load_fusarium_generator import load_maestra_fusarium
+from app.services.etl_jobs.process_guarde_generator import generate_process_guarde
+from app.services.etl_jobs.process_siembras_generator import generate_process_siembras_report
+from app.services.etl_jobs.siembras_teo_real_generator import generate_siembras_teo_real
 
 __all__ = [
     "generate_excel_file",
@@ -28,4 +32,8 @@ __all__ = [
     "generate_pedidos_surtidos",
     "generate_resumir_curvas_usadas",
     "generate_tabla_curvas_clavel",
+    "load_maestra_fusarium",
+    "generate_process_guarde",
+    "generate_process_siembras_report",
+    "generate_siembras_teo_real",
 ]

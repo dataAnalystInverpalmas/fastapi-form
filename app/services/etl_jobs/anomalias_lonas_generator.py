@@ -139,7 +139,7 @@ def _analyze_group(
     dia_no_domingo = merged["fecha_registro"].dt.weekday != 6
     es_festivo = merged["fecha_registro"].isin(festivos)
     merged["es_festivo"] = es_festivo
-    historial_alto = merged["promedio_flor_planta_7d_prev"] > 0.06
+    historial_alto = merged["promedio_flor_planta_7d_prev"] >= 0.1
     tallos_bajos_o_nulos = merged["tallos"].isna() | (merged["tallos"] <= 0)
     posible_falta = dia_no_domingo & ~es_festivo & historial_alto & tallos_bajos_o_nulos
     merged.loc[posible_falta, "es_anomalo"] = True

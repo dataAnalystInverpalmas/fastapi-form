@@ -76,6 +76,8 @@ def normalize_finca_series(series: pd.Series) -> pd.Series:
     """Normaliza finca a codigo string de 3 digitos (001/002/...)."""
     mapped = series.astype(str).str.strip().str.upper()
 
+    mapped = mapped.str.replace(r"^FINCA\s+", "", regex=True)
+
     name_map = {
         "INVERPALMAS": "001",
         "PALERMO": "002",

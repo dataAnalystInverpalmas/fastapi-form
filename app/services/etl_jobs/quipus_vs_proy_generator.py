@@ -54,7 +54,10 @@ def _normalize_merge_keys(df: pd.DataFrame, *, int_cols: list[str] | None = None
     normalized = df.copy()
     for col in text_cols or []:
         if col in normalized.columns:
-            normalized[col] = _normalize_text_key(normalized[col])
+            if col == "finca":
+                normalized[col] = _normalize_finca_code(normalized[col])
+            else:
+                normalized[col] = _normalize_text_key(normalized[col])
     for col in int_cols or []:
         if col in normalized.columns:
             normalized[col] = _normalize_nullable_int_key(normalized[col])
@@ -539,9 +542,79 @@ def _load_proyecciones() -> pd.DataFrame:
     validate_columns(df, required, path.name)
 
     df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce").dt.normalize()
+    df["finca"] = _normalize_finca_code(df["finca"])
     df["nvari"] = df["nvari"].astype(str).str.replace(" ", "_", regex=False)
     return df
 
+
+def _get_recent_completed_weeks(
+    df_fechas_lunes: pd.DataFrame,
+    semana_actual: int,
+    *,
+    count: int = 10,
+) -> list[int]:
+    semanas = (
+        pd.to_numeric(df_fechas_lunes["aass"], errors="coerce")
+        .dropna()
+        .astype(int)
+        .drop_duplicates()
+        .sort_values(ascending=False)
+    )
+    return semanas[semanas < semana_actual].head(count).sort_values().tolist()
+
+
+def _build_cumplimiento_resumen(
+    df_mysql: pd.DataFrame,
+    df_fechas_lunes: pd.DataFrame,
+    semana_actual: int,
+) -> pd.DataFrame:
+    resumen_base = df_mysql.copy()
+    resumen_base["finca"] = _normalize_finca_code(resumen_base["finca"])
+    resumen_base["sem_prod"] = pd.to_numeric(resumen_base["sem_prod"], errors="coerce").astype("Int64")
+
+    for column in ["inverpalmas-real", "quipus-proyección"]:
+        if column not in resumen_base.columns:
+            resumen_base[column] = pd.NA
+        resumen_base[column] = pd.to_numeric(resumen_base[column], errors="coerce")
+
+    semanas_recientes = _get_recent_completed_weeks(
+        df_fechas_lunes=df_fechas_lunes,
+        semana_actual=semana_actual,
+        count=10,
+    )
+    df_10 = resumen_base[resumen_base["sem_prod"].isin(semanas_recientes)].copy()
+
+    df_resumen = (
+        df_10.groupby(["finca", "bloque", "cosecha", "variedad"], as_index=False)
+        .agg(
+            {
+                "inverpalmas-real": lambda series: series.sum(min_count=1),
+                "quipus-proyección": lambda series: series.sum(min_count=1),
+            }
+        )
+    )
+
+    df_resumen["Cumplimiento Khipus"] = df_resumen.apply(
+        lambda row: 0
+        if pd.notna(row["inverpalmas-real"]) and pd.isna(row["quipus-proyección"])
+        else (
+            row["quipus-proyección"] / row["inverpalmas-real"]
+            if pd.notna(row["inverpalmas-real"]) and row["inverpalmas-real"] != 0
+            else pd.NA
+        ),
+        axis=1,
+    )
+    df_resumen["Cumplimiento Khipus"] = pd.to_numeric(
+        df_resumen["Cumplimiento Khipus"],
+        errors="coerce",
+    ).round(2)
+
+    df_resumen = df_resumen.rename(columns={"Cumplimiento Khipus": "Cumple%"})
+    df_resumen["variedad"] = df_resumen["variedad"].astype(str).str.replace("_", " ", regex=False)
+    df_resumen = df_resumen[["finca", "bloque", "variedad", "cosecha", "Cumple%"]].copy()
+    df_resumen = df_resumen.query("cosecha != 'VITRI'").copy()
+
+    return df_resumen.sort_values(["finca", "bloque", "variedad", "cosecha"]).reset_index(drop=True)
 
 def _build_matas(df_proyecciones: pd.DataFrame, df_fechas_lunes: pd.DataFrame) -> pd.DataFrame:
     lunes_actual = pd.Timestamp(datetime.now() - timedelta(days=datetime.now().weekday())).normalize()
@@ -641,6 +714,7 @@ def _persist_outputs(
     df_mysql: pd.DataFrame,
     df_matas: pd.DataFrame,
     df_quipus_proyeccion: pd.DataFrame,
+    df_resumen: pd.DataFrame,
 ) -> str:
     quipus_output_path = Path(normalize_path(settings.QUIPUS_OUTPUT_PATH))
     quipus_output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -652,7 +726,13 @@ def _persist_outputs(
 
     excel_output_path = Path(normalize_path(settings.QUIPUS_EXCEL_OUTPUT_PATH))
     excel_output_path.parent.mkdir(parents=True, exist_ok=True)
-    df_mysql.to_excel(excel_output_path, index=False)
+    with pd.ExcelWriter(excel_output_path, engine="openpyxl") as writer:
+        df_mysql.to_excel(writer, index=False, sheet_name="datos")
+
+    outputs_summary_path = Path(normalize_path(settings.EXCEL_OUTPUT_DIR)) / "cumplimiento_khipus_10_semanas.xlsx"
+    outputs_summary_path.parent.mkdir(parents=True, exist_ok=True)
+    with pd.ExcelWriter(outputs_summary_path, engine="openpyxl") as writer:
+        df_resumen.to_excel(writer, index=False, sheet_name="cumplimiento_10s")
 
     dataframe_to_sql(df_mysql, "quipus_vs_proy", if_exists="replace")
     dataframe_to_sql(df_matas, "quipus_vs_proy_matas", if_exists="replace")
@@ -709,10 +789,16 @@ def generate_quipus_vs_proy_artifacts(params: dict[str, Any] | None = None) -> s
     df_mysql["nfiesta"] = df_mysql["fiesta"].fillna("") + df_mysql["cosecha_ultimos_dos"].astype(str)
     df_mysql = df_mysql.drop(columns=["cosecha_ultimos_dos"]) 
     df_mysql["finca"] = _normalize_finca_code(df_mysql["finca"])
+    df_resumen = _build_cumplimiento_resumen(
+        df_mysql=df_mysql,
+        df_fechas_lunes=df_fechas_lunes,
+        semana_actual=semana_actual,
+    )
 
     return _persist_outputs(
         df_report=df_report,
         df_mysql=df_mysql,
         df_matas=df_matas,
         df_quipus_proyeccion=df_quipus_proyeccion,
+        df_resumen=df_resumen,
     )

@@ -13,14 +13,44 @@ def load_maestra_fusarium() -> str:
 
     validate_columns(
         df,
-        {"finca", "flor", "bloque", "cosecha", "nvari", "fecha", "ncolor", "sustrato", "pico", "porc", "estadoact", "matas", "matfus"},
+        {
+            "finca",
+            "flor",
+            "bloque",
+            "cosecha",
+            "nvari",
+            "fecha",
+            "ncolor",
+            "sustrato",
+            "pico",
+            "porc",
+            "estadoact",
+            "matas",
+            "matfus",
+        },
         "historico_fusarium.dbf",
     )
 
-    df_export = df[["finca", "flor", "bloque", "cosecha", "nvari", "fecha", "ncolor", "sustrato", "pico", "porc", "estadoact", "matas", "matfus"]].copy()
+    df_export = df[
+        [
+            "finca",
+            "flor",
+            "bloque",
+            "cosecha",
+            "nvari",
+            "fecha",
+            "ncolor",
+            "sustrato",
+            "pico",
+            "porc",
+            "estadoact",
+            "matas",
+            "matfus",
+        ]
+    ].copy()
     df_export["fecha"] = pd.to_datetime(df_export["fecha"], errors="coerce")
     df_export = df_export[df_export["fecha"].notna()].copy()
-    df_export = df_export.sort_values(by=["finca", "flor", "nvari", "cosecha", "fecha"]) 
+    df_export = df_export.sort_values(by=["finca", "flor", "nvari", "cosecha", "fecha"])
 
     group_cols = ["finca", "flor", "nvari", "cosecha"]
     max_fecha = df_export.groupby(group_cols)["fecha"].transform("max")

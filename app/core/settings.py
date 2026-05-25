@@ -51,6 +51,8 @@ class Settings(BaseSettings):
         "AjFito Cultivo DFFV",
         "Dirigida Finca-Flor-Variedad",
         "Dirigida",
+        "Fitosanitario Cultivo",
+        "AjFito Cultivo"
     ]
 
     # ETL proyecciones
@@ -87,6 +89,12 @@ class Settings(BaseSettings):
     PRODUCCION_PICOS_DATE_START: str = "2024-01-01"
     PRODUCCION_PICOS_DATE_END: str = "2028-12-31"
 
+    # ETL nuevos scripts de load/
+    PROCESS_GUARDE_INPUT_PATH: str = r"\\172.10.18.2\produc\BASETDINAMICA\TIKA_SALDOS_CTO.csv"
+    PROCESS_GUARDE_OUTPUT_PATH: str = r"\\172.10.18.2\Usuarios\Outputs\guarde_procesado.xlsx"
+    PROCESS_SIEMBRAS_OUTPUT_PATH: str = r"\\svrinverpalmas\usuarios\produccion\Sofia\tika\plano nuevo siembra.xlsx"
+    SIEMBRAS_TEO_REAL_OUTPUT_PATH: str = r"\\172.10.18.2\Usuarios\Outputs\siembras teo vs real.xlsx"
+
     # ETL quipus vs proyecciones
     QUIPUS_DATE_START: str = "2023-01-01"
     QUIPUS_DATE_END: str = "2028-12-31"
@@ -104,7 +112,7 @@ class Settings(BaseSettings):
     PICOS_TALLOS_FACTOR: float = 0.9
     PICOS_DEMANDA_PATH: str = r"\\svrinverpalmas\Usuarios\Hilder\Data\demanda_jun24-2526_abr24-2653_sep25-2752_v5.csv"
     PICOS_OUTPUT_PATH: str = r"\\svrinverpalmas\produc\BASETDINAMICA\compara_pto_proy_real.csv"
-    PICOS_OUTPUT_DIFERENCIAS_PATH: str = r"C:\Users\ESTADISTICA\Downloads\flor_color_diferencias.csv"
+    PICOS_OUTPUT_DIFERENCIAS_PATH: str = r"\\172.10.18.2\Usuarios\Outputs\flor_color_diferencias.csv"
     PICOS_SEMANA_INICIO: int = 2527
     PICOS_SEMANA_FIN: int = 2620
 
@@ -116,7 +124,7 @@ class Settings(BaseSettings):
     DIRIGIDAS_LONAS_SEMANA: int = 65
     DIRIGIDAS_OUTPUT_PATH: str = r"//svrinverpalmas/usuarios/produccion/Sofia/dirigidas/datos/Para dirigida PC.xlsx"
     DIRIGIDAS_BLOQUE_OUTPUT_PATH: str = r"//svrinverpalmas/usuarios/produccion/Sofia/dirigidas/datos/para dirigida por bloque.xlsx"
-    DIRIGIDAS_RESUMEN_PATH: str = r"C:\Users\ESTADISTICA\Downloads\dirigidas_resumen.xlsx"
+    DIRIGIDAS_RESUMEN_PATH: str = r"\\172.10.18.2\Usuarios\Outputs\dirigidas_resumen.xlsx"
 
     # ETL pedidos surtidos (genera ventas ultimo año.xlsx)
     PEDIDOS_SURTIDO_DBF_PATH: str = r"//svrinverpalmas/newfact/DINAMICA/PEDIDOS_surtido.dbf"
@@ -127,11 +135,11 @@ class Settings(BaseSettings):
     COMPARE_TIKA_DEFAULT_MODELS: list[int] = [161, 328, 485, 405]
     COMPARE_TIKA_TALLOS_FACTOR: float = 0.9
     COMPARE_TIKA_D_CUTOFF_DATE: str = "2026-01-05"
-    COMPARE_TIKA_DESPACHOS_PATH: str = r"C:\Users\Estadistica\Downloads\ventas ultimo año.xlsx"
+    COMPARE_TIKA_DESPACHOS_PATH: str = r"\\172.10.18.2\Usuarios\Outputs\ventas ultimo año.xlsx"
     COMPARE_TIKA_QUIPUS_EXCEL_PATH: str = r"C:\Users\ESTADISTICA\Qsync\POSCOSECHA MERCADEO\Datos Quipus\datos.xlsx"
     COMPARE_TIKA_DEMANDA_PATH: str = r"\\svrinverpalmas\Usuarios\Hilder\Data\demanda_jun24-2526_abr24-2653_sep25-2752_v5.csv"
     COMPARE_TIKA_OUTPUT_PATH: str = r"\\svrinverpalmas\Usuarios\Hilder\Data\comparar producción.csv"
-    COMPARE_TIKA_OUTPUT_EXCEL_PATH: str = r"C:\Users\Estadistica\Downloads\comparar producción.xlsx"
+    COMPARE_TIKA_OUTPUT_EXCEL_PATH: str = r"\\172.10.18.2\Usuarios\Outputs\comparar producción.xlsx"
 
     # ETL anomalias lonas
     ANOMALIAS_OUTPUT_DIR: str = r"\\svrinverpalmas\Usuarios\Outputs"
