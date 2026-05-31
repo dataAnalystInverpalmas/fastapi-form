@@ -1,7 +1,9 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, inject } from 'vue'
 import axios from 'axios'
 import { statusMeta, formatDate } from '@/composables/useEtlPolling'
+
+const toast = inject('toast', () => {})
 
 const jobs = ref([])
 const saving = ref({})
@@ -21,7 +23,7 @@ onMounted(async () => {
       ),
     }))
   } catch (err) {
-    if (window.$toast) window.$toast('Error al cargar parámetros.', 'danger')
+    toast('Error al cargar parámetros.', 'danger')
   }
 })
 
@@ -44,11 +46,11 @@ async function saveParams(job) {
     }
     await axios.post(`/api/etl/params/${job.job_id}/save`, { params })
     savedMsg.value[job.job_id] = 'Parámetros guardados'
-    if (window.$toast) window.$toast(`Parámetros de <strong>${job.name}</strong> guardados.`, 'success')
+    toast(`Parámetros de <strong>${job.name}</strong> guardados.`, 'success')
     setTimeout(() => { savedMsg.value[job.job_id] = null }, 3000)
   } catch (err) {
     const msg = err.response?.data?.detail || 'Error al guardar.'
-    if (window.$toast) window.$toast(msg, 'danger')
+    toast(msg, 'danger')
   } finally {
     saving.value[job.job_id] = false
   }

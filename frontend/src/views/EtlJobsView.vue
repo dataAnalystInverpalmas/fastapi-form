@@ -1,17 +1,13 @@
 ﻿<script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, inject } from 'vue'
 import axios from 'axios'
 import { useEtlPolling, statusMeta, formatDate } from '@/composables/useEtlPolling'
+
+const toast = inject('toast', () => {})
 
 const jobs = ref([])
 const search = ref('')
 const statusFilter = ref('')
-const kpiCards = computed(() => [
-  { key: 'queued', value: kpis.value.queued, label: 'En Cola', color: 'text-secondary', icon: 'fas fa-clock' },
-  { key: 'running', value: kpis.value.running, label: 'Ejecutando', color: 'text-primary', icon: 'fas fa-spinner fa-spin' },
-  { key: 'success', value: kpis.value.success, label: 'Exitosos (7d)', color: 'text-success', icon: 'fas fa-circle-check' },
-  { key: 'failed', value: kpis.value.failed, label: 'Fallidos (7d)', color: 'text-danger', icon: 'fas fa-circle-xmark' },
-])
 
 const { kpis, countdown, pollNow } = useEtlPolling({
   pageType: 'etl',
@@ -20,6 +16,13 @@ const { kpis, countdown, pollNow } = useEtlPolling({
     jobs.value = data
   },
 })
+
+const kpiCards = computed(() => [
+  { key: 'queued', value: kpis.value.queued, label: 'En Cola', color: 'text-secondary', icon: 'fas fa-clock' },
+  { key: 'running', value: kpis.value.running, label: 'Ejecutando', color: 'text-primary', icon: 'fas fa-spinner fa-spin' },
+  { key: 'success', value: kpis.value.success, label: 'Exitosos (7d)', color: 'text-success', icon: 'fas fa-circle-check' },
+  { key: 'failed', value: kpis.value.failed, label: 'Fallidos (7d)', color: 'text-danger', icon: 'fas fa-circle-xmark' },
+])
 
 const filteredJobs = computed(() => {
   let data = jobs.value
@@ -111,11 +114,11 @@ async function runJob(jobId, payload = { params: {} }) {
   running.value[jobId] = true
   try {
     const { data } = await axios.post(`/api/etl/jobs/${jobId}/run`, payload)
-    if (window.$toast) window.$toast(`Job <strong>${jobId}</strong> enviado a la cola (run #${data.run_id}).`, 'info')
+    toast(`Job <strong>${jobId}</strong> enviado a la cola (run #${data.run_id}).`, 'info')
     pollNow()
   } catch (err) {
     const msg = err.response?.data?.detail || 'Error al encolar el job.'
-    if (window.$toast) window.$toast(msg, 'danger')
+    toast(msg, 'danger')
   } finally {
     running.value[jobId] = false
   }

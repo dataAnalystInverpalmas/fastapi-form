@@ -23,6 +23,7 @@ from pydantic import BaseModel, field_validator
 
 from app.services.aportes_ponderados_query import exporta_aportes_ponderados_problemas_excel
 from app.services.cortes_lonas_query import exporta_cortes_lonas_excel
+from app.services.etl_constants import ETL_LOAD_EXTRA_IDS
 
 from app.services.pivot_service import (
     ALLOWED_AGGREGATIONS,
@@ -35,12 +36,6 @@ from app.services.pivot_service import (
 
 
 router = APIRouter(prefix="/api")
-
-_ETL_JOBS_EXTRA_IDS = {
-    "load_process_guarde",
-    "load_process_siembras",
-    "load_siembras_teo_real",
-}
 
 
 class PivotRequest(BaseModel):
@@ -92,7 +87,7 @@ def api_list_etl_jobs():
 
     jobs = []
     for job_def in list_jobs_from_catalog():
-        if job_def.job_id.startswith("load_") and job_def.job_id not in _ETL_JOBS_EXTRA_IDS:
+        if job_def.job_id.startswith("load_") and job_def.job_id not in ETL_LOAD_EXTRA_IDS:
             continue
 
         status_row = status_by_job.get(job_def.job_id)
@@ -131,7 +126,7 @@ def api_list_load_jobs():
     jobs = [
         _serialize_row(job)
         for job in list_jobs_with_state()
-        if str(job.get("job_id", "")).startswith("load_") and str(job.get("job_id", "")) not in _ETL_JOBS_EXTRA_IDS
+        if str(job.get("job_id", "")).startswith("load_") and str(job.get("job_id", "")) not in ETL_LOAD_EXTRA_IDS
     ]
     return jobs
 
@@ -167,17 +162,6 @@ def api_run_job(job_id: str, payload: RunJobRequest | None = None):
 @router.get("/etl/jobs/{job_id}/last-params")
 def api_last_job_params(job_id: str):
     return {"job_id": job_id, "params": get_last_job_params(job_id)}
-
-
-@router.post("/etl/proyecciones/run")
-def api_run_proyecciones_etl():
-    try:
-        run_id = start_job(job_id="proyecciones_csv", triggered_by="api")
-        return {"ok": True, "job_id": "proyecciones_csv", "run_id": run_id, "status": "queued"}
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except RuntimeError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("/reporte-dinamico/filtros")

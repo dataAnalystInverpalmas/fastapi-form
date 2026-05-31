@@ -4,12 +4,19 @@ from app.services.etl_catalog import build_job_catalog
 from app.services.etl_definition import ETLJobDefinition
 
 
-JOBS: dict[str, ETLJobDefinition] = build_job_catalog()
+_JOBS: dict[str, ETLJobDefinition] | None = None
+
+
+def _get_registry() -> dict[str, ETLJobDefinition]:
+    global _JOBS
+    if _JOBS is None:
+        _JOBS = build_job_catalog()
+    return _JOBS
 
 
 def get_job(job_id: str) -> ETLJobDefinition | None:
-    return JOBS.get(job_id)
+    return _get_registry().get(job_id)
 
 
 def list_jobs() -> list[ETLJobDefinition]:
-    return list(JOBS.values())
+    return list(_get_registry().values())

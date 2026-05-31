@@ -12,6 +12,7 @@ const router = createRouter({
     { path: '/etl/params',          component: () => import('../views/EtlParamsView.vue'),         meta: { title: 'Parámetros ETL' } },
     { path: '/etl/runs',            component: () => import('../views/EtlRunsView.vue'),           meta: { title: 'Historial ETL' } },
     { path: '/consultas/procesos',  component: () => import('../views/ConsultasProcesosView.vue'), meta: { title: 'Procesos de Consulta' } },
+    { path: '/:pathMatch(.*)*',     redirect: '/dashboard' },
   ],
 })
 

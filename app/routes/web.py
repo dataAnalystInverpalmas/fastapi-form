@@ -22,6 +22,7 @@ from app.services.etl_repository import (
     list_recent_runs,
     upsert_last_job_params,
 )
+from app.services.etl_constants import ETL_LOAD_EXTRA_IDS
 from app.services.etl_runner import start_job
 from app.services.pivot_service import (
     ALLOWED_AGGREGATIONS,
@@ -31,12 +32,6 @@ from app.services.pivot_service import (
 from app.services.query_processes import list_query_processes
 
 router = APIRouter()
-
-_ETL_JOBS_EXTRA_IDS = {
-    "load_process_guarde",
-    "load_process_siembras",
-    "load_siembras_teo_real",
-}
 
 
 templates = Jinja2Templates(directory=str(settings.TEMPLATES_DIR))
@@ -102,7 +97,7 @@ def etl_jobs_page(request: Request):
     jobs = []
 
     for job_def in list_jobs_from_catalog():
-        if job_def.job_id.startswith("load_") and job_def.job_id not in _ETL_JOBS_EXTRA_IDS:
+        if job_def.job_id.startswith("load_") and job_def.job_id not in ETL_LOAD_EXTRA_IDS:
             continue
 
         status_row = status_by_job.get(job_def.job_id)
@@ -208,7 +203,7 @@ def run_etl_job(job_id: str):
 
 @router.get("/load/jobs", response_class=HTMLResponse)
 def load_jobs_page(request: Request):
-    jobs = [job for job in list_jobs_with_state() if str(job.get("job_id", "")).startswith("load_") and str(job.get("job_id", "")) not in _ETL_JOBS_EXTRA_IDS]
+    jobs = [job for job in list_jobs_with_state() if str(job.get("job_id", "")).startswith("load_") and str(job.get("job_id", "")) not in ETL_LOAD_EXTRA_IDS]
     return templates.TemplateResponse(
         "load_jobs.html",
         {

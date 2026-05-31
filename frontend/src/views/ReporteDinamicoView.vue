@@ -1,6 +1,8 @@
 ﻿<script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, inject } from 'vue'
 import axios from 'axios'
+
+const toast = inject('toast', () => {})
 
 const selectedFilas = ref(['finca', 'variedad'])
 const selectedColumnas = ref([])
@@ -106,10 +108,10 @@ async function generate() {
 async function clearCache() {
   try {
     await axios.post('/api/reporte-dinamico/cache/clear')
-    if (window.$toast) window.$toast('Caché del reporte dinámico vaciado.', 'info')
+    toast('Caché del reporte dinámico vaciado.', 'info')
     fromCache.value = false
   } catch {
-    if (window.$toast) window.$toast('Error al limpiar caché.', 'danger')
+    toast('Error al limpiar caché.', 'danger')
   }
 }
 

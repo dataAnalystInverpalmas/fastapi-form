@@ -8,7 +8,7 @@ import pandas as pd
 from app.core.settings import settings
 from app.services.dbf_reader import normalize_path
 from app.services.etl_helpers import resolve_date_range_params
-from load_tests.functions import curve_ini, curve_values_by_age, datos_curva, rescale_to_total
+from app.services.curve_functions import curve_ini, curve_values_by_age, datos_curva, rescale_to_total
 
 
 MAX_PRODUCTION_AGE = 68

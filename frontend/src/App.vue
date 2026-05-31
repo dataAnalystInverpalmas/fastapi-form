@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, provide } from 'vue'
 import { RouterView, useRoute } from 'vue-router'
 
 const route = useRoute()
@@ -17,8 +17,8 @@ function showToast(message, type = 'info') {
   toasts.value.push({ id, message, type })
   setTimeout(() => { toasts.value = toasts.value.filter(t => t.id !== id) }, 5000)
 }
-// Exponer globalmente para uso desde composables
-window.$toast = showToast
+// Exponer a componentes hijos via provide/inject (Vue 3)
+provide('toast', showToast)
 
 const navItems = [
   { section: 'General' },

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -45,11 +46,22 @@ def _schedule_daily_job(job_id: str) -> None:
 _FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    bootstrap_jobs()
+    for _job_id in _DAILY_JOBS:
+        _schedule_daily_job(_job_id)
+    _scheduler.start()
+    yield
+    _scheduler.shutdown(wait=False)
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.APP_NAME,
         version=settings.APP_VERSION,
         debug=settings.DEBUG,
+        lifespan=_lifespan,
     )
 
     # CORS: permite el dev server de Vite en http://localhost:5173
@@ -72,18 +84,6 @@ def create_app() -> FastAPI:
 
     app.include_router(api_router)
     app.include_router(web_router)
-
-    @app.on_event("startup")
-    def on_startup() -> None:
-        # Ensure ETL metadata tables and base catalog are ready.
-        bootstrap_jobs()
-        for _job_id in _DAILY_JOBS:
-            _schedule_daily_job(_job_id)
-        _scheduler.start()
-
-    @app.on_event("shutdown")
-    def on_shutdown() -> None:
-        _scheduler.shutdown(wait=False)
 
     # SPA catch-all: sirve index.html del build de Vite para rutas no-API
     _index = _FRONTEND_DIST / "index.html"
