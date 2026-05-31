@@ -1,336 +1,327 @@
-git# Portal de Datos Inverpalmas
+﻿# Portal de Datos Inverpalmas
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green.svg)](https://fastapi.tiangolo.com/)
-[![Vue.js 3](https://img.shields.io/badge/Vue-3+-brightgreen.svg)](https://vuejs.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.104-green.svg)](https://fastapi.tiangolo.com/)
+[![Vue.js 3](https://img.shields.io/badge/Vue-3-brightgreen.svg)](https://vuejs.org/)
 
-Aplicación web fullstack para gestión y análisis de datos de producción agrícola. Integra procesos ETL automatizados, consultas dinámicas y reportes en tiempo real.
+Aplicacion web fullstack para gestion y analisis de datos de produccion agricola de **Inverpalmas**. Centraliza procesos ETL sobre archivos DBF, reportes automatizados en Excel, y un dashboard interactivo con seguimiento de ejecuciones en tiempo real.
 
-## 📋 Descripción
+---
 
-Portal integral de datos para **Inverpalmas** que permite:
+## Stack tecnologico
 
-- **Consultas dinámicas** de datos de producción y cultivos
-- **Procesos ETL automatizados** para extracción y transformación de datos DBF
-- **Generación de reportes** en Excel con análisis complejos
-- **Dashboard interactivo** con visualización de datos
-- **Gestión de ejecuciones ETL** con seguimiento en tiempo real
-- **Análisis de anomalías** en datos de producción
+| Capa | Tecnologia |
+|------|------------|
+| Backend | FastAPI 0.104, Python 3.10+, APScheduler |
+| Base de datos | MySQL / MariaDB con connection pool |
+| Datos | Pandas, NumPy, SciPy, scikit-learn, dbfread |
+| Frontend | Vue 3 (Composition API), Vite, Tailwind CSS, Axios |
+| Configuracion | pydantic-settings (.env) |
+| Reportes | openpyxl, SQLAlchemy |
 
-## 🛠️ Stack Tecnológico
+---
 
-### Backend
-- **FastAPI** - Framework web moderno y rápido
-- **Python 3.10+** - Lenguaje principal
-- **Pydantic** - Validación de datos y configuración
-- **SQLAlchemy** - ORM para base de datos
-- **MariaDB/MySQL** - Base de datos
-- **Simpledbf** - Lectura de archivos DBF
-- **Pandas/Openpyxl** - Procesamiento de datos y Excel
+## Requisitos previos
 
-### Frontend
-- **Vue.js 3** - Framework JavaScript reactivo
-- **Vite** - Build tool moderno
-- **Tailwind CSS** - Estilos CSS utilitarios
-- **Axios** - Cliente HTTP
+- Python 3.10+
+- Node.js 20+
+- MySQL / MariaDB 5.7+
+- Acceso de red a `\\svrinverpalmas\...` (rutas UNC del servidor)
 
-## 📦 Requisitos
+---
 
-- **Python 3.10+**
-- **Node.js 16+** (para frontend)
-- **MariaDB/MySQL 5.7+**
-- Acceso a rutas de red compartidas (\\svrinverpalmas\...)
-- **Git** (recomendado)
+## Instalacion
 
-## 🚀 Instalación y Configuración
-
-### 1. Clonar o descargar el repositorio
+### 1. Clonar el repositorio
 
 ```bash
-cd c:\Users\ESTADISTICA\Documents\fastapi-form
+git clone https://github.com/dataAnalystInverpalmas/fastapi-form.git
+cd fastapi-form
 ```
 
-### 2. Configurar Backend
+### 2. Backend
 
 ```bash
-# Crear entorno virtual
+# Crear y activar entorno virtual
 python -m venv venv
-
-# Activar entorno virtual
-venv\Scripts\activate  # Windows
+venv\Scripts\activate          # Windows
 
 # Instalar dependencias
 pip install -r requirements.txt
 ```
 
-### 3. Configurar variables de entorno
+### 3. Variables de entorno
 
-Crea un archivo `.env` en la raíz del proyecto:
+Copia el archivo de ejemplo y completa los valores reales:
 
-```env
-# Información de la aplicación
-APP_NAME=Portal de Datos Inverpalmas
-DEBUG=False
-
-# Base de datos
-DB_HOST=localhost
-DB_PORT=3306
-DB_USER=usuario
-DB_PASSWORD=contraseña
-DB_NAME=informes
-
-# Rutas de archivos (ajusta según tu entorno)
-DEFAULT_DBF_PATH=\\svrinverpalmas\produc\LD_BCULT\hijos2026.dbf
-EXCEL_OUTPUT_DIR=\\svrinverpalmas\Usuarios\Outputs
+```bash
+copy .env.example .env
 ```
 
-Ver `app/core/settings.py` para documentación completa de todas las variables.
+Variables minimas necesarias:
 
-### 4. Configurar Frontend
+```env
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=tu_usuario
+DB_PASSWORD=tu_password
+DB_NAME=informes
+```
+
+Ver [.env.example](.env.example) para la lista completa de variables.
+
+### 4. Base de datos
+
+```sql
+CREATE DATABASE informes CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'usuario'@'localhost' IDENTIFIED BY 'password';
+GRANT ALL PRIVILEGES ON informes.* TO 'usuario'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+Las tablas ETL (`etl_jobs`, `etl_job_runs`, `etl_job_last_params`) se crean automaticamente al iniciar la aplicacion.
+
+### 5. Frontend
 
 ```bash
 cd frontend
-
-# Instalar dependencias
 npm install
-
-# (Opcional) Instalar dependencias globales de Marp si usas presentaciones
-npm install -g @marp-team/marp-cli
 ```
 
-### 5. Inicializar Base de Datos
+---
 
-```bash
-# Crear base de datos e inicializar esquemas
-python -m app.core.db
-```
+## Ejecucion
 
-## ▶️ Ejecución
-
-### Modo Desarrollo
+### Modo desarrollo
 
 **Terminal 1 - Backend:**
 ```bash
-# Asegúrate de estar en la raíz del proyecto con venv activado
-python main.py
-# La aplicación estará en http://localhost:8000
+uvicorn main:app --reload
+# http://localhost:8000
 ```
 
 **Terminal 2 - Frontend:**
 ```bash
 cd frontend
 npm run dev
-# La aplicación estará en http://localhost:5173
+# http://localhost:5173  (proxy a :8000 configurado en vite.config.js)
 ```
 
-### Modo Producción
+### Modo produccion
 
 ```bash
-# Backend con Uvicorn
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+# Compilar frontend (genera frontend/dist/)
+cd frontend && npm run build && cd ..
 
-# Frontend
-cd frontend
-npm run build
-# Servir archivos generados en dist/
+# Iniciar backend (sirve el SPA desde /assets y catch-all)
+uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
 ```
-
-## 📁 Estructura del Proyecto
-
-```
-fastapi-form/
-├── app/                          # Código principal
-│   ├── __init__.py
-│   ├── main.py                  # Punto de entrada FastAPI
-│   ├── core/                    # Configuración central
-│   │   ├── config.py
-│   │   ├── db.py               # Configuración de base de datos
-│   │   └── settings.py         # Variables de configuración
-│   ├── routes/                 # Endpoints y rutas web
-│   │   ├── api.py              # APIs REST
-│   │   └── web.py              # Rutas web (templates)
-│   └── services/               # Lógica de negocio
-│       ├── etl_*.py            # Servicios ETL
-│       ├── etl_registry.py     # Registro de trabajos ETL
-│       ├── etl_runner.py       # Ejecutor de ETL
-│       ├── dbf_reader.py       # Lector de archivos DBF
-│       ├── date_service.py     # Servicios de fechas
-│       ├── pivot_service.py    # Servicios de pivoteo
-│       ├── query_processes.py  # Procesamiento de consultas
-│       ├── dbf_loaders/        # Cargadores específicos de DBF
-│       │   └── load_*_generator.py
-│       └── etl_jobs/           # Trabajos ETL específicos
-│           └── *_generator.py
-├── frontend/                    # Aplicación Vue.js
-│   ├── src/
-│   │   ├── components/         # Componentes Vue
-│   │   ├── views/              # Páginas/Vistas
-│   │   ├── composables/        # Composables (lógica reutilizable)
-│   │   ├── router/             # Configuración de rutas
-│   │   └── App.vue             # Componente raíz
-│   └── vite.config.js          # Configuración Vite
-├── templates/                   # Templates HTML para web routes
-├── static/                      # Archivos estáticos (CSS, JS)
-├── load/                        # Notebooks Jupyter para análisis
-│   └── *.ipynb
-├── requirements.txt            # Dependencias Python
-├── main.py                      # Punto de entrada alternativo
-└── README.md                    # Este archivo
-```
-
-## 🔄 Procesos ETL Principales
-
-### Base de Datos Directa (DBF Loaders)
-- **Cargas MGCOL**: Colores y variedades
-- **Cargas MFIES**: Festivales
-- **Cargas MCOSE**: Cosechas
-- **Cargas MVARI**: Variedades de flores
-- **Cargas Lonas**: Datos de lonas (2024-2026)
-- **Cargas Fusarium**: Histórico de fusarium
-- **Cargas Tabla Nacional**: Datos nacionales
-
-### Procesos Transformación (ETL Jobs)
-- **Producto Procesado**: ETL de `pprocesado_*.dbf`
-- **Proyecciones**: Análisis de proyecciones 2024-2026
-- **Producción Picos**: Análisis de producción por picos
-- **Quipus vs Proyecciones**: Comparativa de datos
-- **Dirigidas**: Análisis de dirigidas
-- **Pedidos Surtidos**: Procesos de ventas
-- **Comparar Tika**: Comparativa Tika/Producción/Despachos
-- **Anomalías Lonas**: Detección de anomalías
-- **Tabla Curvas Clavel**: Curvas de clavel
-
-## 📊 Vistas y Funcionalidades
-
-### Dashboard
-- Visualización de métricas clave
-- Gráficos de producción
-- Estado de ETL jobs
-
-### Consultas Dinámicas
-- **Consultar**: Búsqueda libre de datos
-- **Consultas Procesos**: Seguimiento de procesos ETL
-- **Reporte Dinámico**: Generación de reportes personalizados
-
-### Gestión ETL
-- **Parámetros**: Configuración de ETL jobs
-- **Ejecuciones**: Historial de ejecuciones
-- **Cargas**: Cargas manuales de archivos DBF
-
-## ⚙️ Configuración Avanzada
-
-### Variables de Entorno Principales
-
-```env
-# Aplicación
-APP_NAME=Portal de Datos Inverpalmas
-APP_VERSION=1.0.0
-DEBUG=False
-
-# Base de datos
-DB_HOST=localhost
-DB_PORT=3306
-DB_USER=usuario
-DB_PASSWORD=contraseña
-DB_NAME=informes
-
-# ETL
-ETL_MAX_WORKERS=3
-
-# Zona horaria
-TIMEZONE=America/Bogota
-
-# Rutas personalizadas (ver settings.py para todas)
-DEFAULT_DBF_PATH=ruta_archivo.dbf
-EXCEL_OUTPUT_DIR=ruta_salida
-```
-
-Ver [app/core/settings.py](app/core/settings.py) para documentación completa de todas las variables de configuración.
-
-## 🗄️ Base de Datos
-
-### Configuración MariaDB/MySQL
-
-```sql
--- Crear base de datos
-CREATE DATABASE informes CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
--- Crear usuario (opcional)
-CREATE USER 'usuario'@'localhost' IDENTIFIED BY 'contraseña';
-GRANT ALL PRIVILEGES ON informes.* TO 'usuario'@'localhost';
-FLUSH PRIVILEGES;
-```
-
-Las migraciones y esquemas se pueden gestionar con alembic o SQLAlchemy.
-
-## 🧪 Testing
-
-```bash
-# Ejecutar tests
-pytest
-
-# Con cobertura
-pytest --cov=app
-```
-
-## 📝 Notas de Desarrollo
-
-### Lectura de DBF
-- Los archivos DBF se codifican en `latin1`, `cp1252` o `utf-8`
-- El servicio intenta múltiples codificaciones automáticamente
-- Ver `services/dbf_reader.py`
-
-### Procesos ETL
-- Los ETL jobs se registran en `etl_registry.py`
-- Se ejecutan con workers configurables (defecto: 3)
-- Soportan ejecución paralela con control de recursos
-
-### Frontend
-- Usa Vue 3 Composition API
-- Composables reutilizables en `src/composables/`
-- Polling automático para ETL en `useEtlPolling.js`
-
-## 🐛 Troubleshooting
-
-### Problema: Error de conexión a base de datos
-```
-Solución: Verificar credenciales en .env y que MariaDB/MySQL esté corriendo
-```
-
-### Problema: Archivos DBF no se encuentran
-```
-Solución: Verificar rutas en .env y acceso a \\svrinverpalmas\...
-```
-
-### Problema: Frontend no se conecta con backend
-```
-Solución: Verificar que backend esté corriendo en http://localhost:8000
-y revisar CORS en app/main.py
-```
-
-## 📚 Recursos Adicionales
-
-- [FastAPI Documentation](https://fastapi.tiangolo.com/)
-- [Vue 3 Documentation](https://vuejs.org/)
-- [Pydantic Documentation](https://docs.pydantic.dev/)
-- [SQLAlchemy Documentation](https://docs.sqlalchemy.org/)
-
-## 👥 Autores
-
-- Equipo de Datos - Inverpalmas
-
-## 📄 Licencia
-
-Privado - Inverpalmas. Todos los derechos reservados.
-
-## 📞 Soporte
-
-Para reportar problemas o sugerencias, contactar al equipo de desarrollo.
 
 ---
 
-**Última actualización**: Abril 2026
-**Versión de la aplicación**: 1.0.0
-#   f a s t a p i - f o r m 
- 
- 
+## Tests
+
+```bash
+# Pipeline de produccion
+python -m unittest app.services.tests.test_production_pipeline_generator
+
+# Pipeline de fusarium
+python -m unittest app.services.tests.test_fusarium_pipeline_generator
+
+# Pipeline de calidades
+python -m unittest app.services.tests.test_qualities_pipeline_generator
+
+# Reporte de productividad por variedades
+python -m unittest app.services.tests.test_productivity_varieties_report_generator
+```
+
+---
+
+## Estructura del proyecto
+
+```
+fastapi-form/
+├── main.py                        # Entrypoint Uvicorn (re-exporta app.main)
+├── requirements.txt
+├── .env.example                   # Plantilla de variables de entorno
+├── AGENTS.md                      # Convenciones del repositorio
+│
+├── app/
+│   ├── main.py                    # create_app() + lifespan + scheduler
+│   ├── core/
+│   │   ├── config.py              # Shim de compatibilidad (usa settings)
+│   │   ├── db.py                  # Connection pool MySQL (pool_size=5)
+│   │   └── settings.py            # Settings via pydantic-settings
+│   ├── routes/
+│   │   ├── api.py                 # Endpoints REST /api/*
+│   │   └── web.py                 # Rutas Jinja2 (interfaz legacy)
+│   └── services/
+│       ├── curve_functions.py     # Funciones de curva de produccion
+│       ├── etl_catalog.py         # Construccion del catalogo de jobs
+│       ├── etl_constants.py       # Constantes compartidas entre rutas
+│       ├── etl_definition.py      # Dataclass ETLJobDefinition
+│       ├── etl_helpers.py         # Utilidades compartidas (read_dbf, etc.)
+│       ├── etl_params.py          # Validacion/coercion de parametros ETL
+│       ├── etl_registry.py        # Registro lazy de jobs
+│       ├── etl_repository.py      # Acceso a MySQL (runs, jobs, params)
+│       ├── etl_runner.py          # ThreadPoolExecutor + start_job()
+│       ├── pivot_service.py       # Reporte dinamico con whitelist SQL
+│       ├── date_service.py        # Utilidades de fechas (zona Bogota)
+│       ├── dbf_reader.py          # Lectura de DBF con multiples encodings
+│       ├── query_processes.py     # Consultas parametrizadas
+│       ├── aportes_ponderados_query.py
+│       ├── cortes_lonas_query.py
+│       ├── dbf_loaders/           # Cargadores individuales de DBF a MySQL
+│       │   ├── load_causas_generator.py
+│       │   ├── load_colores_generator.py
+│       │   ├── load_cosechas_generator.py
+│       │   ├── load_fiestas_generator.py
+│       │   ├── load_lonas_generator.py
+│       │   ├── load_plano_cultivo_fm_generator.py
+│       │   ├── load_tabla_descarta_curva_generator.py
+│       │   ├── load_tabla_metas_generator.py
+│       │   ├── load_tabla_nacional_generator.py
+│       │   └── load_variedades_generator.py
+│       ├── etl_jobs/              # Generadores ETL (un archivo por job)
+│       │   ├── anomalias_lonas_generator.py
+│       │   ├── aportes_grados_generator.py
+│       │   ├── bajas_exportado_generator.py
+│       │   ├── comparar_picos_demanda_generator.py
+│       │   ├── compare_tika_produccion_generator.py
+│       │   ├── dirigidas_generator.py
+│       │   ├── excel_generator.py
+│       │   ├── fusarium_pipeline_generator.py
+│       │   ├── load_fusarium_generator.py
+│       │   ├── pedidos_surtidos_generator.py
+│       │   ├── process_guarde_generator.py
+│       │   ├── process_siembras_generator.py
+│       │   ├── produccion_picos_generator.py
+│       │   ├── production_pipeline_generator.py
+│       │   ├── productivity_varieties_report_generator.py
+│       │   ├── producto_procesado_generator.py
+│       │   ├── proyecciones_generator.py
+│       │   ├── qualities_pipeline_generator.py
+│       │   ├── quipus_vs_proy_generator.py
+│       │   ├── resumir_curvas_usadas_generator.py
+│       │   ├── siembras_teo_real_generator.py
+│       │   └── tabla_curvas_clavel_generator.py
+│       └── tests/
+│           ├── test_production_pipeline_generator.py
+│           ├── test_fusarium_pipeline_generator.py
+│           ├── test_qualities_pipeline_generator.py
+│           └── test_productivity_varieties_report_generator.py
+│
+├── frontend/
+│   ├── index.html
+│   ├── vite.config.js             # Proxy /api -> :8000 en dev
+│   ├── tailwind.config.js
+│   └── src/
+│       ├── main.js
+│       ├── App.vue                # Shell: sidebar + toasts (provide/inject)
+│       ├── router/
+│       │   └── index.js           # Rutas con lazy loading + catch-all 404
+│       ├── composables/
+│       │   ├── useEtlPolling.js   # Polling adaptativo (4s activo / 20s idle)
+│       │   └── useFileDownload.js # Descarga de archivos binarios
+│       └── views/
+│           ├── DashboardView.vue
+│           ├── ConsultarView.vue
+│           ├── ReporteDinamicoView.vue
+│           ├── EtlJobsView.vue
+│           ├── LoadJobsView.vue
+│           ├── EtlParamsView.vue
+│           ├── EtlRunsView.vue
+│           └── ConsultasProcesosView.vue
+│
+├── templates/                     # HTML Jinja2 (interfaz legacy)
+└── static/                        # CSS/JS estaticos (interfaz legacy)
+```
+
+---
+
+## Jobs ETL disponibles
+
+### Cargas DBF a MySQL (`/load/jobs`)
+
+| Job ID | Descripcion |
+|--------|-------------|
+| `load_maestra_lonas` | Lonas 2024-2026 desde `lonas*.dbf` |
+| `load_maestra_variedades` | Variedades de flores |
+| `load_maestra_cosechas` | Tabla de cosechas |
+| `load_maestra_colores` | Colores de flores |
+| `load_maestra_causas` | Causas de baja |
+| `load_maestra_fiestas` | Dias festivos |
+| `load_tabla_descarta_curva` | Descarta curva |
+| `load_tabla_metas` | Metas por variedad |
+| `load_tabla_nacional` | Datos nacionales `rflo*.dbf` |
+| `load_plano_cultivo_fm` | Plano de cultivo fm |
+| `load_maestra_fusarium` | Historico de fusarium |
+
+> Los jobs `load_maestra_lonas`, `load_tabla_descarta_curva`, `load_tabla_metas` y `load_tabla_nacional` se ejecutan automaticamente cada dia a las 10:00 AM (hora Bogota).
+
+### Procesos ETL (`/etl/jobs`)
+
+| Job ID | Descripcion |
+|--------|-------------|
+| `excel_labores` | Genera `labores_de_siembra.xlsx` |
+| `bajas_exportado` | `bajas_por_mes.csv` y `bajas_desde_2010.csv` |
+| `producto_procesado_csv` | `pprocesado.csv` desde `pprocesado*.dbf` |
+| `proyecciones_csv` | `proyecciones.csv` combinando DBFs + presupuesto |
+| `produccion_picos` | Reporte de produccion por picos |
+| `production_pipeline` | Pipeline completo de produccion con curvas suavizadas por ciclo y finca |
+| `fusarium_pipeline` | Pipeline de analisis de fusarium |
+| `qualities_pipeline` | Pipeline de calidades de produccion |
+| `productivity_varieties_report` | Reporte de productividad por variedades con `pico` y `ciclo` |
+| `quipus_vs_proy` | Quipus vs proyecciones |
+| `compare_tika_produccion` | Comparativa Tika / produccion / despachos |
+| `comparar_picos_demanda` | Picos de produccion vs demanda |
+| `dirigidas` | Analisis de dirigidas |
+| `anomalias_lonas` | Deteccion de anomalias en lonas |
+| `pedidos_surtidos` | Procesos de pedidos surtidos |
+| `aportes_grados` | Aportes por grados |
+| `resumir_curvas_usadas` | Resumen de curvas de produccion usadas |
+| `tabla_curvas_clavel` | Tabla de curvas por variedad de clavel |
+
+---
+
+## Arquitectura ETL
+
+El sistema ETL sigue un patron registry/catalog/runner claramente separado:
+
+```
+etl_catalog.py      -> define la lista de ETLJobDefinition
+etl_registry.py     -> expone get_job() / list_jobs() con carga lazy
+etl_runner.py       -> ejecuta jobs en ThreadPoolExecutor
+etl_repository.py   -> persiste estado en MySQL (etl_jobs, etl_job_runs)
+etl_params.py       -> valida y coerciona parametros tipados
+```
+
+Los jobs con `supports_params=True` aceptan parametros configurables desde la UI en `/etl/params`. Los ultimos parametros usados se persisten automaticamente.
+
+---
+
+## Convenciones del proyecto
+
+Ver [AGENTS.md](AGENTS.md) para las reglas especificas del repositorio, en particular:
+
+- `pico` en los pipelines de produccion es la **edad del ultimo punto de la mejor ventana consecutiva** de `f_m`: ventana de 4 edades para ciclo 1, 10 edades para ciclo 2.
+- `ciclo 1` cubre edades 0-35; `ciclo 2` cubre edades 36-70.
+- Los resumenes incluyen una finca sintetica `000` (todas las fincas combinadas) ademas de `001` y `002`.
+
+---
+
+## Notas de desarrollo
+
+**Lectura de DBF:** se intentan los encodings `latin1`, `cp1252`, `utf-8`, `iso-8859-1` automaticamente.
+
+**Seguridad SQL:** `pivot_service.py` usa whitelist estricta + backtick-quoting. Ningun valor del usuario se interpola directamente en queries.
+
+**Frontend:** los toasts se distribuyen con `provide('toast', fn)` en `App.vue` y se consumen con `inject('toast')` en cada vista.
+
+**CORS:** solo permite `http://localhost:5173` (dev server de Vite). En produccion el frontend se sirve como SPA desde FastAPI.
+
+---
+
+## Licencia
+
+Privado - Inverpalmas. Todos los derechos reservados.
