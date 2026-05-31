@@ -96,24 +96,20 @@ def consultar_dbf(
 
 @router.get("/etl/jobs", response_class=HTMLResponse)
 def etl_jobs_page(request: Request):
-    status_rows = list_jobs_with_state()
+    status_by_job = {
+        str(row.get("job_id", "")): row for row in list_jobs_with_state()
+    }
     jobs = []
-    seen_job_ids: set[str] = set()
 
-    for job in status_rows:
-        job_id = str(job.get("job_id", ""))
-        if job_id.startswith("load_") and job_id not in _ETL_JOBS_EXTRA_IDS:
+    for job_def in list_jobs_from_catalog():
+        if job_def.job_id.startswith("load_") and job_def.job_id not in _ETL_JOBS_EXTRA_IDS:
             continue
-        seen_job_ids.add(job_id)
-        jobs.append(job)
 
-    catalog = {job.job_id: job for job in list_jobs_from_catalog()}
-    for job_id in sorted(_ETL_JOBS_EXTRA_IDS):
-        if job_id in seen_job_ids:
+        status_row = status_by_job.get(job_def.job_id)
+        if status_row:
+            jobs.append(status_row)
             continue
-        job_def = catalog.get(job_id)
-        if not job_def:
-            continue
+
         jobs.append(
             {
                 "job_id": job_def.job_id,

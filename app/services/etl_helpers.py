@@ -1,8 +1,9 @@
 """Funciones compartidas entre generadores ETL."""
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 import numpy as np
 import pandas as pd
@@ -16,6 +17,7 @@ from app.services.date_service import (
     ajustar_a_jueves as _ajustar_a_jueves,
     create_date_table as _create_date_table,
     create_month_period_table as _create_month_period_table,
+    get_bogota_now,
 )
 
 
@@ -124,6 +126,38 @@ def create_date_table(start_date: str, end_date: str) -> pd.DataFrame:
 def create_month_period_table(date_table: pd.DataFrame) -> pd.DataFrame:
     """Genera tabla de periodos mensuales (último jueves de cada mes)."""
     return _create_month_period_table(date_table)
+
+
+def default_previous_year_week_range() -> dict[str, str]:
+    """Retorna el rango por defecto: lunes de la semana 1 del año anterior a domingo de la semana pasada."""
+    now = get_bogota_now()
+    today = pd.Timestamp(now.date()).normalize()
+    previous_year = today.year - 1
+    fecha_inicio = pd.Timestamp(datetime.fromisocalendar(previous_year, 1, 1)).normalize()
+    lunes_semana_actual = today - pd.Timedelta(days=today.weekday())
+    fecha_fin = (lunes_semana_actual - pd.Timedelta(days=1)).normalize()
+    return {
+        "fecha_inicio": fecha_inicio.strftime("%Y-%m-%d"),
+        "fecha_fin": fecha_fin.strftime("%Y-%m-%d"),
+    }
+
+
+def resolve_date_range_params(params: dict[str, Any] | None = None) -> tuple[pd.Timestamp, pd.Timestamp]:
+    """Resuelve fecha_inicio/fecha_fin usando defaults semanales y overrides explícitos."""
+    defaults = default_previous_year_week_range()
+    raw_inicio = (params or {}).get("fecha_inicio", defaults["fecha_inicio"])
+    raw_fin = (params or {}).get("fecha_fin", defaults["fecha_fin"])
+
+    try:
+        fecha_inicio = pd.to_datetime(raw_inicio, errors="raise").normalize()
+        fecha_fin = pd.to_datetime(raw_fin, errors="raise").normalize()
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError("Las fechas deben tener formato valido (YYYY-MM-DD).") from exc
+
+    if fecha_inicio > fecha_fin:
+        raise ValueError("fecha_inicio no puede ser mayor que fecha_fin.")
+
+    return fecha_inicio, fecha_fin
 
 
 # ---------------------------------------------------------------------------

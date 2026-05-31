@@ -61,17 +61,10 @@ def _calcular_usemana(grupo: pd.DataFrame) -> pd.DataFrame:
     rolling_sum = grupo["fm"].rolling(window=4).sum()
     idx_max_window = rolling_sum.idxmax()
     max_sum = rolling_sum.max()
-    ventana = 4
-
-    if max_sum < 3.2 and len(grupo) >= 5:
-        rolling_sum = grupo["fm"].rolling(window=5).sum()
-        idx_max_window = rolling_sum.idxmax()
-        max_sum = rolling_sum.max()
-        ventana = 5
 
     grupo["pico"] = grupo.loc[idx_max_window, "edad"]
     grupo["suma_pico"] = max_sum
-    grupo["puntos_pico"] = ventana
+    grupo["puntos_pico"] = 4
     mask = grupo["fm"] > 0
     grupo["termina_curva"] = grupo.loc[mask, "edad"].iloc[-1] if mask.any() else np.nan
     grupo["puntos"] = len(grupo)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.core.settings import settings
+from app.services.etl_helpers import default_previous_year_week_range
 from app.services.dbf_loaders import (
     load_maestra_causas,
     load_maestra_colores,
@@ -16,19 +17,24 @@ from app.services.dbf_loaders import (
 from app.services.etl_definition import ETLJobDefinition
 from app.services.etl_jobs import (
     generate_anomalias_lonas,
+    generate_aportes_grados,
     generate_bajas_exportado_reports,
     generate_compare_tika_produccion_report,
     generate_comparar_picos_demanda_report,
     generate_dirigidas_analyzer,
     generate_excel_file,
+    generate_fusarium_pipeline,
     load_maestra_fusarium,
     generate_pedidos_surtidos,
+    generate_production_pipeline,
     generate_produccion_picos_report,
+    generate_productivity_varieties_report,
     generate_producto_procesado_csv,
     generate_process_guarde,
     generate_process_siembras_report,
     generate_siembras_teo_real,
     generate_proyecciones_csv,
+    generate_qualities_pipeline,
     generate_quipus_vs_proy_artifacts,
     generate_resumir_curvas_usadas,
     generate_tabla_curvas_clavel,
@@ -36,6 +42,7 @@ from app.services.etl_jobs import (
 
 
 def build_job_catalog() -> dict[str, ETLJobDefinition]:
+    default_week_range = default_previous_year_week_range()
     jobs = [
         ETLJobDefinition(
             job_id="excel_labores",
@@ -149,6 +156,51 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             allows_parallel=True,
             timeout_seconds=1800,
             runner=generate_tabla_curvas_clavel,
+        ),
+        ETLJobDefinition(
+            job_id="production_pipeline_curvas",
+            name="Pipeline de Curvas de Produccion",
+            description="Lee tabla_curvas_clavel.csv, filtra y suaviza curvas de produccion, y exporta el detalle y resumen a Outputs.",
+            allows_parallel=True,
+            timeout_seconds=2400,
+            runner=generate_production_pipeline,
+            supports_params=True,
+            default_params={
+                **dict(default_week_range),
+                "sem_valle": 8,
+                "peak_window_weeks": 4,
+                "smooth_window_length": 7,
+                "smooth_polyorder": 2,
+                "force_valley_weeks_after_peak": 8,
+            },
+        ),
+        ETLJobDefinition(
+            job_id="qualities_pipeline",
+            name="Pipeline de Calidades",
+            description="Lee pprocesado.csv y exporta el resumen de aportes por calidad a CSV en Outputs.",
+            allows_parallel=True,
+            timeout_seconds=1800,
+            runner=generate_qualities_pipeline,
+            supports_params=True,
+            default_params=dict(default_week_range),
+        ),
+        ETLJobDefinition(
+            job_id="fusarium_pipeline",
+            name="Pipeline de Fusarium por Variedad",
+            description="Consulta ld_fusarium, calcula el promedio por finca, variedad y ciclo dentro del rango de fechas y exporta un CSV en Outputs.",
+            allows_parallel=True,
+            timeout_seconds=1800,
+            runner=generate_fusarium_pipeline,
+            supports_params=True,
+            default_params=dict(default_week_range),
+        ),
+        ETLJobDefinition(
+            job_id="productivity_varieties_report",
+            name="Reporte de Productividad de Variedades",
+            description="Cruza plane, production_pipeline_curvas y qualities_pipeline para generar el Excel de productividades por variedad en Outputs.",
+            allows_parallel=True,
+            timeout_seconds=1800,
+            runner=generate_productivity_varieties_report,
         ),
         ETLJobDefinition(
             job_id="resumir_curvas_usadas",
@@ -273,6 +325,16 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             allows_parallel=True,
             timeout_seconds=1800,
             runner=generate_process_siembras_report,
+        ),
+        ETLJobDefinition(
+            job_id="aportes_grados_pipeline",
+            name="Pipeline de Aportes por Grado",
+            description="Consulta ld_producto_procesado por fuente (procesado, dirigida_cultivo, dirigida_pc), cruza con la tabla dates para obtener aass y calcula el aporte porcentual de cada grado. Exporta CSV en Outputs.",
+            allows_parallel=True,
+            timeout_seconds=1800,
+            runner=generate_aportes_grados,
+            supports_params=True,
+            default_params=dict(default_week_range),
         ),
         ETLJobDefinition(
             job_id="load_siembras_teo_real",

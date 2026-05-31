@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -10,7 +12,34 @@ from fastapi.responses import FileResponse
 from app.core.settings import settings
 from app.routes.web import router as web_router
 from app.routes.api import router as api_router
-from app.services.etl_runner import bootstrap_jobs
+from app.services.etl_runner import bootstrap_jobs, start_job
+
+
+_BOGOTA_TZ = "America/Bogota"
+_scheduler = BackgroundScheduler(timezone=_BOGOTA_TZ)
+
+_DAILY_JOBS = [
+    "load_maestra_lonas",
+    "load_tabla_descarta_curva",
+    "load_tabla_metas",
+    "load_tabla_nacional",
+]
+
+
+def _schedule_daily_job(job_id: str) -> None:
+    def _runner() -> None:
+        try:
+            start_job(job_id, triggered_by="scheduler")
+        except RuntimeError:
+            # Ya hay una corrida en progreso; se omite esta ejecución
+            pass
+
+    _scheduler.add_job(
+        _runner,
+        CronTrigger(hour=10, minute=0, timezone=_BOGOTA_TZ),
+        id=f"{job_id}_daily",
+        replace_existing=True,
+    )
 
 # Directorio del build de Vite
 _FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
@@ -48,6 +77,13 @@ def create_app() -> FastAPI:
     def on_startup() -> None:
         # Ensure ETL metadata tables and base catalog are ready.
         bootstrap_jobs()
+        for _job_id in _DAILY_JOBS:
+            _schedule_daily_job(_job_id)
+        _scheduler.start()
+
+    @app.on_event("shutdown")
+    def on_shutdown() -> None:
+        _scheduler.shutdown(wait=False)
 
     # SPA catch-all: sirve index.html del build de Vite para rutas no-API
     _index = _FRONTEND_DIST / "index.html"

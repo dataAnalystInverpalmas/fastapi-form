@@ -85,33 +85,27 @@ def api_etl_kpis():
 
 @router.get("/etl/jobs")
 def api_list_etl_jobs():
-    # Crear diccionario con metadatos del catálogo
     catalog = {job.job_id: job for job in list_jobs_from_catalog()}
+    status_by_job = {
+        str(row.get("job_id", "")): row for row in list_jobs_with_state()
+    }
 
     jobs = []
-    seen_job_ids: set[str] = set()
-    for row in list_jobs_with_state():
-        job_id = str(row.get("job_id", ""))
-        if job_id.startswith("load_") and job_id not in _ETL_JOBS_EXTRA_IDS:
+    for job_def in list_jobs_from_catalog():
+        if job_def.job_id.startswith("load_") and job_def.job_id not in _ETL_JOBS_EXTRA_IDS:
             continue
-        job_def = catalog.get(job_id)
-        seen_job_ids.add(job_id)
-        jobs.append(
-            {
-                **_serialize_row(row),
-                "supports_params": bool(job_def.supports_params) if job_def else False,
-                "default_params": (job_def.default_params or {}) if job_def else {},
-            }
-        )
 
-    # Si estos jobs no existen todavia en etl_jobs (bootstrap pendiente),
-    # exponerlos igualmente desde el catalogo para que aparezcan en la tabla ETL.
-    for job_id in sorted(_ETL_JOBS_EXTRA_IDS):
-        if job_id in seen_job_ids:
+        status_row = status_by_job.get(job_def.job_id)
+        if status_row:
+            jobs.append(
+                {
+                    **_serialize_row(status_row),
+                    "supports_params": bool(job_def.supports_params),
+                    "default_params": job_def.default_params or {},
+                }
+            )
             continue
-        job_def = catalog.get(job_id)
-        if not job_def:
-            continue
+
         jobs.append(
             {
                 "job_id": job_def.job_id,

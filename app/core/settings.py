@@ -52,7 +52,9 @@ class Settings(BaseSettings):
         "Dirigida Finca-Flor-Variedad",
         "Dirigida",
         "Fitosanitario Cultivo",
-        "AjFito Cultivo"
+        "AjFito Cultivo",
+        "Clasificacion",
+        "AjFito por Finca/Flor PP"
     ]
 
     # ETL proyecciones
@@ -149,6 +151,13 @@ class Settings(BaseSettings):
     # ETL tabla curvas clavel
     TABLA_CURVAS_CLAVEL_DBF_PATH: str = r"\\svrinverpalmas\produc\basetdinamica\Curvas_por_Tiqueteado_EC.dbf"
     TABLA_CURVAS_CLAVEL_OUTPUT_CSV: str = r"\\svrinverpalmas\Usuarios\Hilder\Data\tabla_curvas_clavel.csv"
+    CURVAS_PRODUCCION_OUTPUT_PATH: str = r"\\svrinverpalmas\Usuarios\Outputs\bd_pipeline.xlsx"
+    CURVAS_PRODUCCION_RESUMEN_OUTPUT_PATH: str = r"\\svrinverpalmas\Usuarios\Outputs\resumen_variedades.csv"
+    CALIDADES_OUTPUT_PATH: str = r"\\svrinverpalmas\Usuarios\Outputs\calidades_aporte.csv"
+    CALIDADES_FUENTE_FILTER: list[str] = ["AjFito Cultivo DFFV", "Dirigida Finca-Flor-Variedad"]
+    APORTES_GRADOS_OUTPUT_PATH: str = r"\\svrinverpalmas\Usuarios\Outputs\aportes_por_grado.csv"
+    FUSARIUM_VARIETIES_OUTPUT_PATH: str = r"\\svrinverpalmas\Usuarios\Outputs\fusarium_variedades.csv"
+    PRODUCTIVIDADES_OUTPUT_PATH: str = r"\\svrinverpalmas\Usuarios\Outputs\reporte de productividades.xlsx"
 
     # Ejecucion ETL
     ETL_MAX_WORKERS: int = 3

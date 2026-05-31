@@ -33,7 +33,7 @@ def _asignar_grado(df: pd.DataFrame) -> pd.DataFrame:
 
     df["grado"] = np.where(
         df["grado"].isin(["SEL", "080", "070", "090", "100"]),
-        "SELECT",
+        "SEL",
         np.where(
             df["grado"].isin(["FAN", "060"]),
             "FAN",
