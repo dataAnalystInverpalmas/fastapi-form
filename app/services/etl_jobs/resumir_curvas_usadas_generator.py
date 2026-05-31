@@ -1,4 +1,4 @@
-"""Genera un resumen de curvas Tika por programa y variedad."""
+﻿"""Genera un resumen de curvas Tika por programa y variedad."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -8,8 +8,8 @@ import unicodedata
 import numpy as np
 import pandas as pd
 
-from app.services.dbf_reader import normalize_path
-from app.services.etl_helpers import dataframe_to_sql, execute_query, validate_columns
+from app.services.utils.dbf_reader import normalize_path
+from app.services.etl.helpers import dataframe_to_sql, execute_query, validate_columns
 
 
 def _normalize_column_name(name: str) -> str:

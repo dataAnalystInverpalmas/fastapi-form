@@ -1,4 +1,4 @@
-"""Detección de anomalías en ld_lonas usando reglas físicas e históricas.
+﻿"""Detección de anomalías en ld_lonas usando reglas físicas e históricas.
 
 Analiza registros en ld_lonas filtrados por rango de semanas (YYWW), por grupo
 (finca, bloque, variedad, cosecha). Rellena fechas faltantes entre el mínimo y
@@ -24,8 +24,8 @@ from pathlib import Path
 import pandas as pd
 
 from app.core.settings import settings
-from app.services.date_service import date_to_yyww, yyww_to_date
-from app.services.etl_helpers import _get_engine
+from app.services.utils.date_service import date_to_yyww, yyww_to_date
+from app.services.etl.helpers import _get_engine
 
 
 def _load_festivos() -> set[pd.Timestamp]:

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 from typing import Optional
@@ -11,25 +11,25 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.core.settings import settings
-from app.services.aportes_ponderados_query import exporta_aportes_ponderados_problemas_excel
-from app.services.cortes_lonas_query import exporta_cortes_lonas_excel
-from app.services.dbf_reader import read_dbf_file
-from app.services.etl_params import normalize_job_params, resolve_params_for_run
-from app.services.etl_registry import list_jobs as list_jobs_from_catalog
-from app.services.etl_repository import (
+from app.services.queries.aportes_ponderados_query import exporta_aportes_ponderados_problemas_excel
+from app.services.queries.cortes_lonas_query import exporta_cortes_lonas_excel
+from app.services.utils.dbf_reader import read_dbf_file
+from app.services.etl.params import normalize_job_params, resolve_params_for_run
+from app.services.etl.registry import list_jobs as list_jobs_from_catalog
+from app.services.etl.repository import (
     get_last_job_params,
     list_jobs_with_state,
     list_recent_runs,
     upsert_last_job_params,
 )
-from app.services.etl_constants import ETL_LOAD_EXTRA_IDS
-from app.services.etl_runner import start_job
-from app.services.pivot_service import (
+from app.services.etl.constants import ETL_LOAD_EXTRA_IDS
+from app.services.etl.runner import start_job
+from app.services.queries.pivot_service import (
     ALLOWED_AGGREGATIONS,
     ALLOWED_FIELDS,
     ALLOWED_METRICS,
 )
-from app.services.query_processes import list_query_processes
+from app.services.queries.query_processes import list_query_processes
 
 router = APIRouter()
 

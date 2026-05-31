@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse
 from app.core.settings import settings
 from app.routes.web import router as web_router
 from app.routes.api import router as api_router
-from app.services.etl_runner import bootstrap_jobs, start_job
+from app.services.etl.runner import bootstrap_jobs, start_job
 
 
 _BOGOTA_TZ = "America/Bogota"

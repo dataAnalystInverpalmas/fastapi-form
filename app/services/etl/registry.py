@@ -1,7 +1,7 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
-from app.services.etl_catalog import build_job_catalog
-from app.services.etl_definition import ETLJobDefinition
+from app.services.etl.catalog import build_job_catalog
+from app.services.etl.definition import ETLJobDefinition
 
 
 _JOBS: dict[str, ETLJobDefinition] | None = None

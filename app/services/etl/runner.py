@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 import inspect
@@ -6,7 +6,7 @@ from typing import Any
 
 from app.core.settings import settings
 from app.services import etl_repository
-from app.services.etl_registry import get_job, list_jobs
+from app.services.etl.registry import get_job, list_jobs
 
 
 _executor: ThreadPoolExecutor | None = None

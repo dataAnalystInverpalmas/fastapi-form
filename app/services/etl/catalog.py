@@ -1,7 +1,7 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from app.core.settings import settings
-from app.services.etl_helpers import default_previous_year_week_range
+from app.services.etl.helpers import default_previous_year_week_range
 from app.services.dbf_loaders import (
     load_maestra_causas,
     load_maestra_colores,
@@ -14,7 +14,7 @@ from app.services.dbf_loaders import (
     load_tabla_nacional,
     load_maestra_variedades,
 )
-from app.services.etl_definition import ETLJobDefinition
+from app.services.etl.definition import ETLJobDefinition
 from app.services.etl_jobs import (
     generate_anomalias_lonas,
     generate_aportes_grados,

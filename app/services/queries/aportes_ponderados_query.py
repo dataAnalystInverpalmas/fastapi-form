@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 
@@ -6,7 +6,7 @@ import pandas as pd
 
 from app.core.db import db_connection
 from app.core.settings import settings
-from app.services.dbf_reader import normalize_path
+from app.services.utils.dbf_reader import normalize_path
 
 _SQL_APORTES_PONDERADOS = """
     WITH base_lonas AS (

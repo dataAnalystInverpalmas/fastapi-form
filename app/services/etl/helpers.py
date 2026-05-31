@@ -1,4 +1,4 @@
-"""Funciones compartidas entre generadores ETL."""
+﻿"""Funciones compartidas entre generadores ETL."""
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -12,8 +12,8 @@ from sqlalchemy import create_engine
 
 from app.core.db import db_connection
 from app.core.settings import settings
-from app.services.dbf_reader import normalize_path
-from app.services.date_service import (
+from app.services.utils.dbf_reader import normalize_path
+from app.services.utils.date_service import (
     ajustar_a_jueves as _ajustar_a_jueves,
     create_date_table as _create_date_table,
     create_month_period_table as _create_month_period_table,

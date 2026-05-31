@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
@@ -6,7 +6,7 @@ from typing import Any
 import pandas as pd
 
 from app.core.settings import settings
-from app.services.dbf_reader import normalize_path
+from app.services.utils.dbf_reader import normalize_path
 
 
 REQUIRED_COLUMNS: set[str] = {
@@ -40,7 +40,7 @@ def _read_table(input_path: str) -> pd.DataFrame:
     elif suffix == ".csv":
         df = pd.read_csv(path, low_memory=False)
     elif suffix == ".dbf":
-        from app.services.etl_helpers import read_dbf
+        from app.services.etl.helpers import read_dbf
 
         df = read_dbf(str(path))
     else:

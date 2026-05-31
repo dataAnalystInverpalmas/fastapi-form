@@ -1,10 +1,10 @@
-"""Genera tabla de curvas clavel desde DBF Curvas_por_Tiqueteado_EC.dbf."""
+﻿"""Genera tabla de curvas clavel desde DBF Curvas_por_Tiqueteado_EC.dbf."""
 from __future__ import annotations
 
 import pandas as pd
 
 from app.core.settings import settings
-from app.services.etl_helpers import (
+from app.services.etl.helpers import (
     ajustar_a_jueves,
     dataframe_to_sql,
     read_dbf,

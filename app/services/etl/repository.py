@@ -1,12 +1,12 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import datetime
 import json
 from typing import Any
 
 from app.core.db import db_connection
-from app.services.etl_definition import ETLJobDefinition
-from app.services.date_service import get_bogota_now
+from app.services.etl.definition import ETLJobDefinition
+from app.services.utils.date_service import get_bogota_now
 
 
 STATUS_QUEUED = "queued"

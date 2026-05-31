@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
@@ -7,8 +7,8 @@ import numpy as np
 import pandas as pd
 
 from app.core.settings import settings
-from app.services.dbf_reader import normalize_path
-from app.services.etl_helpers import execute_query, pico, safe_int_series, validate_columns
+from app.services.utils.dbf_reader import normalize_path
+from app.services.etl.helpers import execute_query, pico, safe_int_series, validate_columns
 
 
 FLOWER_MAP: dict[str, str] = {
@@ -360,7 +360,7 @@ def _generate_diferencias(df_export: pd.DataFrame, params: dict[str, Any]) -> No
     Calcula flor_color_diferencias.csv con la diferencia entre producción
     proyectada (Real|Teo) y demanda, por flor/color/semana.
     """
-    from app.services.date_service import get_current_iso_week
+    from app.services.utils.date_service import get_current_iso_week
 
     semana_actual = int(params.get("semana_actual") or get_current_iso_week())
     semana_inicio = int(params.get("semana_inicio") or settings.PICOS_SEMANA_INICIO)

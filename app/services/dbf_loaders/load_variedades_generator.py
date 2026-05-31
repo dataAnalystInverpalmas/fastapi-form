@@ -1,7 +1,7 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from app.core.settings import settings
-from app.services.etl_helpers import dataframe_to_sql, read_dbf, validate_columns
+from app.services.etl.helpers import dataframe_to_sql, read_dbf, validate_columns
 
 
 def load_maestra_variedades() -> str:

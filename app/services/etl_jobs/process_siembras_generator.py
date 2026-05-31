@@ -1,12 +1,12 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 
 import pandas as pd
 
 from app.core.settings import settings
-from app.services.date_service import ajustar_a_jueves
-from app.services.etl_helpers import execute_query
+from app.services.utils.date_service import ajustar_a_jueves
+from app.services.etl.helpers import execute_query
 
 
 def generate_process_siembras_report() -> str:

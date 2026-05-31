@@ -1,9 +1,9 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Any
 
-from app.services.etl_repository import get_last_job_params
-from app.services.etl_registry import get_job
+from app.services.etl.repository import get_last_job_params
+from app.services.etl.registry import get_job
 
 
 def _parse_list(value: Any, sample_item: Any) -> list[Any]:
