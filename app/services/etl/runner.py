@@ -5,7 +5,7 @@ import inspect
 from typing import Any
 
 from app.core.settings import settings
-from app.services import etl_repository
+from app.services.etl import repository as etl_repository
 from app.services.etl.registry import get_job, list_jobs
 
 

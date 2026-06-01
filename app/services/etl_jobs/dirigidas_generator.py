@@ -26,6 +26,23 @@ FLOWER_MAP: dict[str, str] = {
 
 DIAS_SEMANA: list[str] = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado"]
 
+# Variedades con incremento prioritario de 1 muestra en la salida de dirigida PC.
+DIRIGIDA_PC_PRIORITY_VARIETIES: set[str] = {
+    "DON PEDRO",
+    "MOON LIGHT",
+    "DONCEL",
+    "ARAGON",
+    "ARTIC",
+    "ATHENA",
+    "PIGEON",
+    "PINK PIGEON",
+}
+
+
+def _normalize_variety_key(value: Any) -> str:
+    """Normaliza nombres de variedad para comparacion robusta."""
+    return " ".join(str(value).replace("_", " ").upper().split())
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -512,7 +529,19 @@ def _build_dirigida_pc_output(
     chunks = []
     for _, group in df_sorted.groupby(["finca", "flor"], as_index=False):
         group = group.sort_values("tallos", ascending=False).reset_index(drop=True)
+
+        # Priorizar +1 muestra para variedades definidas, sin exceder el cupo semanal.
+        special_mask = group["nvari"].map(_normalize_variety_key).isin(DIRIGIDA_PC_PRIORITY_VARIETIES)
+        idx_special = group.index[special_mask].tolist()
+
         faltante = int(max(lonas_semana - len(group), 0))
+        for row_idx in idx_special:
+            if faltante <= 0:
+                break
+            incremento = min(1, faltante)
+            group.loc[row_idx, "muestra"] += incremento
+            faltante -= incremento
+
         i = 0
         while faltante > 0 and not group.empty:
             row_idx = i % len(group)
