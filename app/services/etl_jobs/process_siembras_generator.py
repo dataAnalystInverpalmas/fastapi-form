@@ -5,7 +5,6 @@ from pathlib import Path
 import pandas as pd
 
 from app.core.settings import settings
-from app.services.utils.date_service import ajustar_a_jueves
 from app.services.etl.helpers import execute_query
 
 
@@ -25,38 +24,7 @@ def generate_process_siembras_report() -> str:
     WHERE p.plantas > 1
     """
 
-    sql_variedades = """
-    SELECT
-        v.nombre AS variedad, c.nombre AS color, c.orden
-    FROM ld_variedades AS v
-    LEFT JOIN ld_colores AS c ON c.codigo = v.codgcol
-    WHERE v.codflor IN ('CLA', 'CM0')
-    """
-
-    sql_real = """
-    SELECT
-        h.variedad,
-        h.fecha_siembra,
-        s.cod_temporada AS cosecha,
-        h.tipo_siembra AS tsiembra,
-        s.año AS programa,
-        SUM(plantas) AS plantas
-    FROM hplane AS h
-    INNER JOIN seasons AS s
-      ON s.nombre = h.temporada
-    WHERE s.año >= 2024
-    GROUP BY h.variedad, h.fecha_siembra, cosecha, tsiembra, programa
-    """
-
-    sql_fechas = "SELECT fecha, aass, semana, mes, año FROM dates WHERE dia_semana = 4"
-
-    df_fechas = pd.DataFrame(execute_query(sql_fechas) or [], columns=["fecha", "aass", "semana", "mes", "año"])
-    if df_fechas.empty:
-        raise RuntimeError("No se encontraron fechas jueves en la tabla dates.")
-    df_fechas["aass"] = df_fechas["aass"].astype(str)
-    df_fechas["fecha"] = pd.to_datetime(df_fechas["fecha"])
-
-    df_budget = pd.DataFrame(execute_query(select_query) or [], columns=[
+    results = pd.DataFrame(execute_query(select_query) or [], columns=[
         "finca",
         "bloque",
         "nave",
@@ -70,38 +38,62 @@ def generate_process_siembras_report() -> str:
         "fecha_arranque",
         "ciclos",
     ])
-    df_variedades = pd.DataFrame(execute_query(sql_variedades) or [], columns=["variedad", "color", "orden"])
-    df_real = pd.DataFrame(execute_query(sql_real) or [], columns=["variedad", "fecha_siembra", "cosecha", "tsiembra", "programa", "plantas"])
 
-    if df_budget.empty and df_real.empty:
+    if results.empty:
         raise RuntimeError("No se encontraron registros para procesar siembras.")
 
-    df_budget["fecha_siembra"] = pd.to_datetime(df_budget["fecha_siembra"], errors="coerce").apply(ajustar_a_jueves)
-    df_real["fecha_siembra"] = pd.to_datetime(df_real["fecha_siembra"], errors="coerce").apply(ajustar_a_jueves)
-    df_budget["tipo"] = "teo"
-    df_real["tipo"] = "real"
-
-    results = pd.concat([df_real, df_budget], axis=0, ignore_index=True)
-    if results.empty:
-        raise RuntimeError("No se pudo consolidar informacion de siembras.")
-
-    results["ncamas"] = pd.to_numeric(results["plantas"], errors="coerce").fillna(0) / 960
-    results["ncamas"] = pd.to_numeric(results["ncamas"], errors="coerce").round(1)
-
-    results = pd.merge(results, df_variedades, how="left", on="variedad")
-    results["fecha_siembra"] = pd.to_datetime(results["fecha_siembra"], errors="coerce")
-
-    results = pd.merge(
-        results,
-        df_fechas.rename(columns={"fecha": "fecha_siembra"}),
-        on="fecha_siembra",
-        how="left",
+    filter_mask = ~(
+        (results["finca"] == "INVERPALMAS")
+        & (results["bloque"] == 16)
+        & (results["nave"] == 10)
+        & (results["variedad"] != "MISS TRENDY")
     )
 
-    if results["fecha_siembra"].isna().all():
-        raise RuntimeError("No se pudieron normalizar las fechas de siembra.")
+    results = results[filter_mask]
+
+    if results.empty:
+        raise RuntimeError("No se encontraron registros para procesar siembras.")
+
+    results["fecha_arranque"] = results["fecha_arranque"].astype(str).str[:]
+    results["fecha_siembra"] = (
+        results["fecha_siembra"].astype("string")
+        .str.replace(r"\.0$", "", regex=True)
+        .str.zfill(4)
+        .str.slice(0, 4)
+    )
+    results["tipo_suelo"] = results["tipo_suelo"].astype(str).str.replace(" ", "_")
+    results["ciclos"] = results["ciclos"].astype(str).str[:]
+
+    cascarilla_map = {
+        "CASCARILLA_PRIMER_USO": "NNUEVA",
+        "CASCARILLA_SEGUNDO_USO": "2SEGUNDO_USO",
+        "CASCARILLA_TERCER_USO": "3TERCER_USO",
+        "CASCARILLA_CUARTO_USO": "4CUARTO_USO",
+    }
+
+    goteo_map = {
+        "Gotero Externo (2.0 l/h - 0.3m)": "GOTERO_EXTERNO_(2.0_L/H_-_0.3M)",
+        "Gotero Interno (1.2 l/h - 0.2m)": "GOTERO_INTERNO_(1.2_L/H_-_0.2M)",
+        "Gotero Externo (2.0 l/h - 0.2m)": "GOTERO_EXTERNO_(2.0_L/H_-_0.2M)",
+        "Gotero Interno (1.0 l/h - 0.2m)": "GOTERO_INTERNO_(1.0_L/H_-_0.2M)",
+    }
+
+    results["goteo"] = results["nmanguera"].map(goteo_map).fillna("GOTERO_EXTERNO_(1.0_L/H_-_0.2M)")
+    results["cascarilla"] = results["tipo_suelo"].map(cascarilla_map).fillna("NNUEVA")
+    
+    results["semana"] = results["fecha_siembra"].str[-2:].str.zfill(2)
+    results["año"] = "20" + results["fecha_siembra"].str[:2]
+
+    # Final column selection and renaming
+    final_df = results[[
+        "finca", "bloque", "nave", "tabla", "cama", "variedad",
+        "semana", "año", "plantas", "ciclos", "cascarilla", "goteo"
+    ]].rename(columns={
+        "plantas": "cantidad",
+        "ciclos": "ciclo",
+    })
 
     output_path = Path(settings.PROCESS_SIEMBRAS_OUTPUT_PATH)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    results.to_excel(output_path, index=False)
+    final_df.to_excel(output_path, index=False)
     return str(output_path)
