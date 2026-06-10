@@ -160,7 +160,7 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
         ETLJobDefinition(
             job_id="production_pipeline_curvas",
             name="Pipeline de Curvas de Produccion",
-            description="Lee tabla_curvas_clavel.csv, filtra y suaviza curvas de produccion, y exporta el detalle y resumen a Outputs.",
+            description="Lee tabla_curvas_clavel.csv, filtra y suaviza curvas de produccion, y exporta el detalle, resumen y la salida filtrada a Outputs.",
             allows_parallel=True,
             timeout_seconds=2400,
             runner=generate_production_pipeline,

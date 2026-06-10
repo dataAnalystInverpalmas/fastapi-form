@@ -12,6 +12,18 @@ from app.services.utils.dbf_reader import normalize_path
 from app.services.etl.helpers import dataframe_to_sql, execute_query, validate_columns
 
 
+MIN_POINTS_CYCLE_1 = 8
+MIN_POINTS_CYCLE_2 = 14
+FILTER_COLUMN = "filtro"
+
+
+def _tukey_bounds(values: pd.Series) -> tuple[float, float]:
+    q1 = values.quantile(0.25)
+    q3 = values.quantile(0.75)
+    iqr = q3 - q1
+    return float(q1 - 1.5 * iqr), float(q3 + 1.5 * iqr)
+
+
 def _normalize_column_name(name: str) -> str:
     normalized = unicodedata.normalize("NFKD", str(name))
     normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
@@ -69,6 +81,43 @@ def _calcular_usemana(grupo: pd.DataFrame) -> pd.DataFrame:
     grupo["termina_curva"] = grupo.loc[mask, "edad"].iloc[-1] if mask.any() else np.nan
     grupo["puntos"] = len(grupo)
     return grupo
+
+
+def _apply_curve_filter(
+    df: pd.DataFrame,
+    group_columns: list[str],
+    variety_column: str,
+    cycle_column: str = "ciclo",
+) -> pd.DataFrame:
+    if df.empty:
+        return df.assign(**{FILTER_COLUMN: pd.Series(dtype="int64")})
+
+    curve_stats = (
+        df.groupby(group_columns, dropna=False, as_index=False)
+        .agg(puntos=("edad", "size"), suma_fm=("fm", "sum"))
+    )
+
+    thresholds = (
+        curve_stats.groupby([variety_column, cycle_column], dropna=False)
+        .agg(
+            q1=("suma_fm", lambda series: series.quantile(0.25)),
+            q3=("suma_fm", lambda series: series.quantile(0.75)),
+        )
+        .reset_index()
+    )
+    thresholds["lower_bound"] = thresholds["q1"] - 1.5 * (thresholds["q3"] - thresholds["q1"])
+    thresholds["upper_bound"] = thresholds["q3"] + 1.5 * (thresholds["q3"] - thresholds["q1"])
+
+    curve_stats = curve_stats.merge(thresholds, on=[variety_column, cycle_column], how="left")
+
+    puntos_ok = (
+        ((curve_stats[cycle_column] == 1) & (curve_stats["puntos"] > MIN_POINTS_CYCLE_1))
+        | ((curve_stats[cycle_column] == 2) & (curve_stats["puntos"] > MIN_POINTS_CYCLE_2))
+    )
+    tukey_ok = curve_stats["suma_fm"].between(curve_stats["lower_bound"], curve_stats["upper_bound"], inclusive="both")
+    curve_stats[FILTER_COLUMN] = np.where(puntos_ok & tukey_ok, 1, 0)
+
+    return df.merge(curve_stats[group_columns + [FILTER_COLUMN]], on=group_columns, how="left")
 
 
 def _resolve_curve_sources(params: dict[str, Any] | None) -> list[tuple[str, int]]:
@@ -150,10 +199,10 @@ def _build_curvas_resumen_todas() -> pd.DataFrame:
     df_curvas["cosecha"] = df_curvas["cosecha"].astype(str).str.strip()
     df_curvas = df_curvas.dropna(subset=["edad", "fm", "finca", "flor", "bloque", "variedad", "cosecha"])
     df_curvas = df_curvas.query("edad >= 17 and edad <= 70").copy()
-    df_curvas = df_curvas[df_curvas["flor"].isin(["CLA", "CM0"]) & (df_curvas["cosecha"] != "VITRI")].copy()
+    df_curvas = df_curvas[df_curvas["flor"].isin(["CLA", "CM0"])].copy() #& (df_curvas["cosecha"] != "VITRI")
 
     df_curvas["ciclo"] = np.select(
-        [df_curvas["edad"] <= 35, df_curvas["edad"] <= 70],
+        [df_curvas["edad"] <= 35, df_curvas["edad"] <= 68],
         [1, 2],
         default=3,
     )
@@ -174,7 +223,15 @@ def _build_curvas_resumen_todas() -> pd.DataFrame:
         raise RuntimeError("No hay datos válidos para exportar curvas_resumen_todas.csv.")
 
     df_resultado2 = pd.concat(grouped_rows, ignore_index=True)
+    df_resultado2 = _apply_curve_filter(
+        df_resultado2,
+        ["finca", "bloque", "variedad", "cosecha", "ciclo"],
+        "variedad",
+    )
     df_resultado2_clean = df_resultado2.dropna().copy()
+    df_resultado2_clean = df_resultado2_clean[df_resultado2_clean[FILTER_COLUMN] == 1].copy()
+    if df_resultado2_clean.empty:
+        raise RuntimeError("Ninguna curva de ld_curvas_clavel cumplió el filtro para exportar curvas_resumen_todas.csv.")
 
     resumen2 = (
         df_resultado2_clean
@@ -200,6 +257,8 @@ def _build_curvas_resumen_todas() -> pd.DataFrame:
         .merge(resumen2, on=["finca", "bloque", "variedad", "cosecha"], how="left")
         .merge(df_ppico2, on=["finca", "bloque", "variedad", "cosecha"], how="left", suffixes=("_base", "_ppico"))
     )
+
+    df_export2[FILTER_COLUMN] = 1
 
     # Mantiene una sola columna de puntos de pico con nombre estable.
     if "puntos_base" in df_export2.columns:
@@ -230,10 +289,10 @@ def generate_resumir_curvas_usadas(params: dict[str, Any] | None = None) -> str:
 
     frames = [_procesar_curvas(path_csv=path_csv, anio=anio) for path_csv, anio in sources]
     df_resultado = pd.concat(frames, ignore_index=True)
-    df_resultado = df_resultado.query("edad >= 17 and edad <= 70").copy()
+    df_resultado = df_resultado.query("edad >= 17 and edad <= 68").copy()
 
     df_resultado["ciclo"] = np.select(
-        [df_resultado["edad"] <= 35, df_resultado["edad"] <= 70],
+        [df_resultado["edad"] <= 35, df_resultado["edad"] <= 68],
         [1, 2],
         default=3,
     )
@@ -247,12 +306,16 @@ def generate_resumir_curvas_usadas(params: dict[str, Any] | None = None) -> str:
         processed_groups.append(grupo_out)
 
     if not processed_groups:
-        raise RuntimeError("No hay datos válidos para resumir curvas en el rango de edad 17-70.")
+        raise RuntimeError("No hay datos válidos para resumir curvas en el rango de edad 17-68.")
 
     df_resultado = pd.concat(processed_groups, ignore_index=True)
+    df_resultado = _apply_curve_filter(df_resultado, ["prg", "variedad", "ciclo"], "variedad")
+    df_resultado_filtrado = df_resultado[df_resultado[FILTER_COLUMN] == 1].copy()
+    if df_resultado_filtrado.empty:
+        raise RuntimeError("Ninguna curva cumplió el filtro para exportar curvas_resumen.csv.")
 
     resumen = (
-        df_resultado
+        df_resultado_filtrado
         .groupby(["prg", "variedad", "ciclo"], dropna=False)["fm"]
         .sum()
         .unstack(fill_value=0)
@@ -263,18 +326,20 @@ def generate_resumir_curvas_usadas(params: dict[str, Any] | None = None) -> str:
     resumen["suma_total"] = resumen[["suma_ciclo1", "suma_ciclo2"]].sum(axis=1)
 
     df_ppico = (
-        df_resultado.query("ciclo == 1")
+        df_resultado_filtrado.query("ciclo == 1")
         .groupby(["prg", "variedad"], dropna=False)
         .agg({"pico": "first", "suma_pico": "first"})
         .reset_index()
     )
 
     df_export = (
-        df_resultado
+        df_resultado_filtrado
         .drop(columns=["pico", "suma_pico"], errors="ignore")
         .merge(resumen, on=["prg", "variedad"], how="left")
         .merge(df_ppico, on=["prg", "variedad"], how="left")
     )
+
+    df_export[FILTER_COLUMN] = 1
 
     dataframe_to_sql(df_resultado, "resumen_curvas", if_exists="replace")
 

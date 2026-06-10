@@ -4,6 +4,8 @@ import pandas as pd
 
 from app.services.etl_jobs.production_pipeline_generator import (
     _annotate_cycle_peaks,
+    _apply_curve_filter,
+    _build_filtered_curve_summary,
     _build_summary,
     _calculate_peak_age,
     _smooth_curves,
@@ -116,6 +118,47 @@ class ProductionPipelinePeakTests(unittest.TestCase):
 
         pd.testing.assert_frame_equal(sumas, esperado, atol=1e-9, rtol=1e-9)
 
+    def test_smooth_curves_separates_same_group_by_ciclo(self) -> None:
+        detalle = pd.DataFrame(
+            {
+                "finca": ["001"] * 8,
+                "bloque": [19] * 8,
+                "nvariedad": ["MOON"] * 8,
+                "cosecha": ["EN2605"] * 8,
+                "edad": [18, 19, 20, 21, 18, 19, 20, 21],
+                "ciclo": [1, 1, 1, 1, 2, 2, 2, 2],
+                "f_m": [1.0, 1.0, 1.0, 1.0, 10.0, 10.0, 10.0, 10.0],
+            }
+        )
+
+        resultado = _smooth_curves(
+            detalle,
+            {
+                "sem_valle": 0,
+                "peak_window_weeks": 4,
+                "smooth_window_length": 3,
+                "smooth_polyorder": 1,
+                "force_valley_weeks_after_peak": 0,
+            },
+        )
+
+        sumas_por_ciclo = (
+            resultado.groupby("ciclo", as_index=False)[["f_m", "fm_suave"]]
+            .sum()
+            .sort_values("ciclo")
+            .reset_index(drop=True)
+        )
+
+        esperado = pd.DataFrame(
+            {
+                "ciclo": [1, 2],
+                "f_m": [4.0, 40.0],
+                "fm_suave": [4.0, 40.0],
+            }
+        )
+
+        pd.testing.assert_frame_equal(sumas_por_ciclo, esperado, atol=1e-9, rtol=1e-9)
+
     def test_build_summary_appends_finca_000_grouped_without_finca(self) -> None:
         detalle = pd.DataFrame(
             {
@@ -141,6 +184,91 @@ class ProductionPipelinePeakTests(unittest.TestCase):
         self.assertEqual(finca_000.loc[0, "ciclo"], 1)
         self.assertEqual(finca_000.loc[0, "pico"], 25)
         self.assertAlmostEqual(finca_000.loc[0, "f_m"], 2.75)
+
+    def test_apply_curve_filter_marks_cycle_groups_by_points_and_tukey_iqr(self) -> None:
+        rows = []
+
+        cycle_1_sums = [10, 20, 30, 40, 100]
+        for index, suma_fm in enumerate(cycle_1_sums, start=1):
+            rows.extend(
+                {
+                    "finca": f"00{index}",
+                    "bloque": 10 + index,
+                    "nvariedad": "MOON",
+                    "cosecha": "EN2605",
+                    "ciclo": 1,
+                    "edad": edad,
+                    "f_m": suma_fm / 9,
+                }
+                for edad in range(1, 10)
+            )
+
+        cycle_2_sums = [100, 200, 300, 400, 1000]
+        for index, suma_fm in enumerate(cycle_2_sums, start=1):
+            rows.extend(
+                {
+                    "finca": f"00{index}",
+                    "bloque": 20 + index,
+                    "nvariedad": "MOON",
+                    "cosecha": "EN2605",
+                    "ciclo": 2,
+                    "edad": edad,
+                    "f_m": suma_fm / 15,
+                }
+                for edad in range(36, 51)
+            )
+
+        df = pd.DataFrame(rows)
+        resultado = _apply_curve_filter(df, ["finca", "bloque", "nvariedad", "cosecha", "ciclo"], "nvariedad")
+
+        filtros_ciclo_1 = (
+            resultado[resultado["ciclo"] == 1]
+            .groupby(["finca", "bloque"], as_index=False)["filtro"]
+            .first()
+            .sort_values(["finca", "bloque"])
+            ["filtro"]
+            .tolist()
+        )
+        filtros_ciclo_2 = (
+            resultado[resultado["ciclo"] == 2]
+            .groupby(["finca", "bloque"], as_index=False)["filtro"]
+            .first()
+            .sort_values(["finca", "bloque"])
+            ["filtro"]
+            .tolist()
+        )
+
+        self.assertEqual(filtros_ciclo_1, [1, 1, 1, 1, 0])
+        self.assertEqual(filtros_ciclo_2, [1, 1, 1, 1, 0])
+
+    def test_build_filtered_curve_summary_uses_only_filter_one_rows(self) -> None:
+        detalle = pd.DataFrame(
+            {
+                "finca": ["001", "001", "001", "001", "002", "002", "002", "002"],
+                "nvariedad": ["MOON"] * 8,
+                "edad": [18, 19, 20, 21, 18, 19, 20, 21],
+                "f_m": [1.0, 2.0, 3.0, 4.0, 2.0, 2.0, 2.0, 2.0],
+                "filtro": [1, 1, 1, 0, 1, 1, 1, 1],
+            }
+        )
+
+        resultado = _build_filtered_curve_summary(
+            detalle,
+            {
+                "sem_valle": 0,
+                "peak_window_weeks": 4,
+                "smooth_window_length": 3,
+                "smooth_polyorder": 1,
+                "force_valley_weeks_after_peak": 0,
+            },
+        )
+
+        self.assertEqual(sorted(resultado["finca"].unique().tolist()), ["001", "002"])
+        self.assertTrue({"finca", "nvariedad", "edad", "ciclo", "f_m", "fm_suave"}.issubset(resultado.columns))
+
+        finca_001 = resultado[(resultado["finca"] == "001") & (resultado["edad"] == 21)].reset_index(drop=True)
+        self.assertEqual(float(finca_001.loc[0, "f_m"]), 0.0)
+        self.assertEqual(int(finca_001.loc[0, "ciclo"]), 1)
 
 
 if __name__ == "__main__":

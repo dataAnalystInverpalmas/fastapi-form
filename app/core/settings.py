@@ -153,6 +153,7 @@ class Settings(BaseSettings):
     TABLA_CURVAS_CLAVEL_OUTPUT_CSV: str = r"\\svrinverpalmas\Usuarios\Hilder\Data\tabla_curvas_clavel.csv"
     CURVAS_PRODUCCION_OUTPUT_PATH: str = r"\\svrinverpalmas\Usuarios\Outputs\bd_pipeline.xlsx"
     CURVAS_PRODUCCION_RESUMEN_OUTPUT_PATH: str = r"\\svrinverpalmas\Usuarios\Outputs\resumen_variedades.csv"
+    CURVAS_PRODUCCION_FILTRADA_OUTPUT_PATH: str = r"\\svrinverpalmas\Usuarios\Outputs\curvas_filtradas_variedades.csv"
     CALIDADES_OUTPUT_PATH: str = r"\\svrinverpalmas\Usuarios\Outputs\calidades_aporte.csv"
     CALIDADES_FUENTE_FILTER: list[str] = ["AjFito Cultivo DFFV", "Dirigida Finca-Flor-Variedad"]
     APORTES_GRADOS_OUTPUT_PATH: str = r"\\svrinverpalmas\Usuarios\Outputs\aportes_por_grado.csv"

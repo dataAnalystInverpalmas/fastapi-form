@@ -18,6 +18,9 @@ POSITIVE_TOLERANCE = 1e-9
 DETAIL_SORT_COLUMNS = ["finca", "bloque", "nvariedad", "cosecha", "ciclo", "edad"]
 SUMMARY_SORT_COLUMNS = ["finca", "nvariedad", "ciclo"]
 ALL_FARMS_CODE = "000"
+FILTER_COLUMN = "filtro"
+MIN_POINTS_CYCLE_1 = 8
+MIN_POINTS_CYCLE_2 = 14
 
 DEFAULT_SMOOTHING_PARAMS = {
     "sem_valle": 8,
@@ -26,6 +29,8 @@ DEFAULT_SMOOTHING_PARAMS = {
     "smooth_polyorder": 2,
     "force_valley_weeks_after_peak": 8,
 }
+
+CURVE_SUMMARY_AGES = np.arange(18, MAX_PRODUCTION_AGE + 1)
 
 
 def _sort_report_rows(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
@@ -184,6 +189,13 @@ def _calculate_peak_age(grupo: pd.DataFrame) -> float:
     return float(grupo.loc[int(idx_max_window), "edad"])
 
 
+def _tukey_bounds(values: pd.Series) -> tuple[float, float]:
+    q1 = values.quantile(0.25)
+    q3 = values.quantile(0.75)
+    iqr = q3 - q1
+    return float(q1 - 1.5 * iqr), float(q3 + 1.5 * iqr)
+
+
 def _annotate_cycle_peaks(df: pd.DataFrame, group_columns: list[str]) -> pd.DataFrame:
     resultados: list[pd.DataFrame] = []
 
@@ -198,6 +210,37 @@ def _annotate_cycle_peaks(df: pd.DataFrame, group_columns: list[str]) -> pd.Data
     df_out = pd.concat(resultados, ignore_index=True)
     df_out["pico"] = pd.to_numeric(df_out["pico"], errors="coerce").round().astype("Int64")
     return df_out
+
+
+def _apply_curve_filter(df: pd.DataFrame, group_columns: list[str], variety_column: str) -> pd.DataFrame:
+    if df.empty:
+        return df.assign(**{FILTER_COLUMN: pd.Series(dtype="int64")})
+
+    curve_stats = (
+        df.groupby(group_columns, dropna=False, as_index=False)
+        .agg(puntos=("edad", "size"), suma_fm=("f_m", "sum"))
+    )
+
+    thresholds = (
+        curve_stats.groupby([variety_column, "ciclo"], dropna=False)
+        .agg(
+            q1=("suma_fm", lambda series: series.quantile(0.25)),
+            q3=("suma_fm", lambda series: series.quantile(0.75)),
+        )
+        .reset_index()
+    )
+    thresholds["lower_bound"] = thresholds["q1"] - 1.5 * (thresholds["q3"] - thresholds["q1"])
+    thresholds["upper_bound"] = thresholds["q3"] + 1.5 * (thresholds["q3"] - thresholds["q1"])
+
+    curve_stats = curve_stats.merge(thresholds, on=[variety_column, "ciclo"], how="left")
+    puntos_ok = (
+        ((curve_stats["ciclo"] == 1) & (curve_stats["puntos"] > MIN_POINTS_CYCLE_1))
+        | ((curve_stats["ciclo"] == 2) & (curve_stats["puntos"] > MIN_POINTS_CYCLE_2))
+    )
+    tukey_ok = curve_stats["suma_fm"].between(curve_stats["lower_bound"], curve_stats["upper_bound"], inclusive="both")
+    curve_stats[FILTER_COLUMN] = np.where(puntos_ok & tukey_ok, 1, 0)
+
+    return df.merge(curve_stats[group_columns + [FILTER_COLUMN]], on=group_columns, how="left")
 
 
 def _load_source(fecha_inicio: pd.Timestamp, fecha_fin: pd.Timestamp) -> pd.DataFrame:
@@ -250,58 +293,10 @@ def _build_base(df_raw: pd.DataFrame) -> pd.DataFrame:
     df["ciclo"] = df["edad"].apply(_asignar_ciclo)
     df["f_m"] = np.where(df["matas"] > 0, df["corte"] / df["matas"], np.nan)
     df = df.dropna(subset=["f_m"]).copy()
-
-    final_dfs: list[pd.DataFrame] = []
-    for ciclo in [1, 2]:
-        df_f = df[df["ciclo"] == ciclo][["finca", "bloque", "nvariedad", "cosecha", "f_m", "edad", "ciclo"]].copy()
-        if df_f.empty:
-            continue
-
-        gr = (
-            df_f.groupby(["finca", "bloque", "nvariedad", "cosecha"], as_index=False)["f_m"]
-            .sum()
-        )
-        gr = gr.query("f_m >= 3.5").copy()
-        if gr.empty:
-            continue
-
-        filtrados: list[pd.DataFrame] = []
-        for variedad in gr["nvariedad"].dropna().unique():
-            temp = gr[gr["nvariedad"] == variedad].copy()
-            if len(temp) < 5:
-                filtrados.append(temp)
-                continue
-
-            q1 = temp["f_m"].quantile(0.05)
-            q3 = temp["f_m"].quantile(0.95)
-            filtrados.append(temp[(temp["f_m"] >= q1) & (temp["f_m"] <= q3)])
-
-        if not filtrados:
-            continue
-
-        filtro = pd.concat(filtrados, ignore_index=True)
-        nuevo = pd.merge(
-            df_f,
-            filtro,
-            on=["finca", "bloque", "nvariedad", "cosecha"],
-            how="left",
-        )
-        nuevo = nuevo.rename(columns={"f_m_x": "f_m"})
-        nuevo["filtro"] = np.where(nuevo["f_m_y"].isna(), 0, 1)
-        final_dfs.append(nuevo)
-
-    if not final_dfs:
+    if df.empty:
         raise RuntimeError("No se generó información base para el pipeline de curvas.")
 
-    df_final = pd.concat(final_dfs, ignore_index=True)
-    df_final = df_final.query("filtro == 1").copy()
-    if df_final.empty:
-        raise RuntimeError("Todos los registros fueron descartados por el filtro de curvas.")
-
-    return (
-        df_final.groupby(["finca", "bloque", "nvariedad", "cosecha", "edad", "ciclo"], as_index=False)["f_m"]
-        .mean()
-    )
+    return df.groupby(["finca", "bloque", "nvariedad", "cosecha", "edad", "ciclo"], as_index=False)["f_m"].mean()
 
 
 def _resolve_smoothing_params(params: dict | None) -> dict[str, int]:
@@ -325,19 +320,22 @@ def _resolve_smoothing_params(params: dict | None) -> dict[str, int]:
 
 def _smooth_curves(df: pd.DataFrame, smoothing_params: dict[str, int]) -> pd.DataFrame:
     resultados: list[pd.DataFrame] = []
-    grupos = df[["finca", "bloque", "nvariedad", "cosecha"]].drop_duplicates()
+    grupos = df[["finca", "bloque", "nvariedad", "cosecha", "ciclo"]].drop_duplicates()
 
     for _, row in grupos.iterrows():
         finca = row["finca"]
         bloque = row["bloque"]
         variedad = row["nvariedad"]
         cosecha = row["cosecha"]
+        ciclo = row["ciclo"]
         temp = df[
             (df["finca"] == finca)
             & (df["bloque"] == bloque)
             & (df["nvariedad"] == variedad)
             & (df["cosecha"] == cosecha)
+            & (df["ciclo"] == ciclo)
         ].copy()
+        temp = temp.sort_values("edad").reset_index(drop=True)
         peak_cycle_1_age = _calculate_peak_age(temp[temp["ciclo"] == 1].copy())
         peak_cycle_1_age_int = None if pd.isna(peak_cycle_1_age) else int(round(float(peak_cycle_1_age)))
 
@@ -359,7 +357,7 @@ def _smooth_curves(df: pd.DataFrame, smoothing_params: dict[str, int]) -> pd.Dat
                 )
             )
         except Exception as exc:  # noqa: BLE001
-            raise RuntimeError(f"No se pudo suavizar la curva {finca}-{bloque}-{variedad}-{cosecha}: {exc}") from exc
+            raise RuntimeError(f"No se pudo suavizar la curva {finca}-{bloque}-{variedad}-{cosecha}-{ciclo}: {exc}") from exc
 
     if not resultados:
         raise RuntimeError("No se generaron curvas suavizadas.")
@@ -390,7 +388,45 @@ def _build_summary(df: pd.DataFrame) -> pd.DataFrame:
         .reset_index(drop=True)
     )
     summary["pico"] = pd.to_numeric(summary["pico"], errors="coerce").astype("Int64")
+    summary[FILTER_COLUMN] = 1
     return _sort_report_rows(summary, SUMMARY_SORT_COLUMNS)
+
+
+def _build_filtered_curve_summary(df: pd.DataFrame, smoothing_params: dict[str, int]) -> pd.DataFrame:
+    filtered = df[df[FILTER_COLUMN] == 1].copy()
+    if filtered.empty:
+        raise RuntimeError("No se encontraron curvas con filtro=1 para exportar la salida filtrada.")
+
+    grouped = filtered.groupby(["finca", "nvariedad", "edad"], as_index=False)["f_m"].mean()
+    grouped["edad"] = grouped["edad"].astype(int)
+
+    resultados: list[pd.DataFrame] = []
+    for _, grupo in grouped.groupby(["finca", "nvariedad"], sort=False):
+        grupo = grupo.sort_values("edad").copy()
+        curva = grupo.set_index("edad")["f_m"].reindex(CURVE_SUMMARY_AGES, fill_value=0.0).to_numpy(dtype=float)
+        _, _, suavizada = datos_curva(
+            curva,
+            sem_valle=smoothing_params["sem_valle"],
+            peak_window_weeks=smoothing_params["peak_window_weeks"],
+            smooth_window_length=smoothing_params["smooth_window_length"],
+            smooth_polyorder=smoothing_params["smooth_polyorder"],
+        )
+        salida = pd.DataFrame(
+            {
+                "finca": grupo["finca"].iloc[0],
+                "nvariedad": grupo["nvariedad"].iloc[0],
+                "edad": CURVE_SUMMARY_AGES,
+                "ciclo": pd.Series(CURVE_SUMMARY_AGES).apply(_asignar_ciclo),
+                "f_m": curva,
+                "fm_suave": suavizada,
+            }
+        )
+        resultados.append(salida)
+
+    if not resultados:
+        raise RuntimeError("No se pudo construir la salida filtrada de curvas.")
+
+    return _sort_report_rows(pd.concat(resultados, ignore_index=True), ["finca", "nvariedad", "edad"])
 
 
 def generate_production_pipeline(params: dict | None = None) -> str:
@@ -405,14 +441,19 @@ def generate_production_pipeline(params: dict | None = None) -> str:
         ),
         DETAIL_SORT_COLUMNS,
     )
-    resumen = _build_summary(final)
+    final = _apply_curve_filter(final, ["finca", "bloque", "nvariedad", "cosecha", "ciclo"], "nvariedad")
+    resumen = _build_summary(final[final[FILTER_COLUMN] == 1].copy())
+    curvas_filtradas = _build_filtered_curve_summary(final, smoothing_params)
 
     detail_output = Path(normalize_path(settings.CURVAS_PRODUCCION_OUTPUT_PATH))
     summary_output = Path(normalize_path(settings.CURVAS_PRODUCCION_RESUMEN_OUTPUT_PATH))
+    filtered_output = Path(normalize_path(settings.CURVAS_PRODUCCION_FILTRADA_OUTPUT_PATH))
     detail_output.parent.mkdir(parents=True, exist_ok=True)
     summary_output.parent.mkdir(parents=True, exist_ok=True)
+    filtered_output.parent.mkdir(parents=True, exist_ok=True)
 
     final.to_excel(detail_output, index=False)
     resumen.to_csv(summary_output, index=False, encoding="utf-8-sig")
+    curvas_filtradas.to_csv(filtered_output, index=False, encoding="utf-8-sig")
 
-    return f"xlsx:{detail_output} | csv:{summary_output}"
+    return f"xlsx:{detail_output} | csv:{summary_output} | csv:{filtered_output}"

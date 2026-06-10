@@ -283,7 +283,7 @@ def _remove_excedentes(
 
 def _distribute_by_days(
     df: pd.DataFrame,
-    lonas_semana: int = 65,
+    lonas_semana: int = 66,
 ) -> pd.DataFrame:
     """Distribute samples across days of the week."""
     expected_cols = list(df.columns)
@@ -317,7 +317,7 @@ def _distribute_by_days(
 
 def _assign_muestra_values(
     df: pd.DataFrame,
-    lonas_semana: int = 65,
+    lonas_semana: int = 66,
 ) -> pd.DataFrame:
     """Assign muestra values (1-4) based on available space."""
     expected_cols = list(df.columns)
