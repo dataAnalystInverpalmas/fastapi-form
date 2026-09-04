@@ -321,6 +321,80 @@ def count_running_jobs(job_id: str) -> int:
     return int(row[0] if row else 0)
 
 
+def fail_stale_runs(job_id: str, timeout_seconds: int) -> int:
+    """Marca como fallidas corridas queued/running que excedieron su timeout."""
+    now = get_bogota_now()
+    timeout_value = max(int(timeout_seconds or 0), 1)
+    stale_message = f"Timeout detectado automaticamente ({timeout_value} s)."
+
+    with db_connection() as connection:
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            UPDATE etl_job_runs
+            SET
+                status = %s,
+                finished_at = %s,
+                duration_seconds = TIMESTAMPDIFF(SECOND, started_at, %s),
+                error_message = %s
+            WHERE job_id = %s
+              AND status IN (%s, %s)
+              AND started_at <= DATE_SUB(%s, INTERVAL %s SECOND)
+            """,
+            (
+                STATUS_FAILED,
+                now,
+                now,
+                stale_message,
+                job_id,
+                STATUS_QUEUED,
+                STATUS_RUNNING,
+                now,
+                timeout_value,
+            ),
+        )
+        affected_rows = int(cursor.rowcount or 0)
+        connection.commit()
+        cursor.close()
+
+    return affected_rows
+
+
+def fail_all_stale_runs() -> int:
+    """Marca como fallidas todas las corridas queued/running que excedieron el timeout configurado del job."""
+    now = get_bogota_now()
+
+    with db_connection() as connection:
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            UPDATE etl_job_runs AS r
+            JOIN etl_jobs AS j
+              ON j.job_id = r.job_id
+            SET
+                r.status = %s,
+                r.finished_at = %s,
+                r.duration_seconds = TIMESTAMPDIFF(SECOND, r.started_at, %s),
+                r.error_message = CONCAT('Timeout detectado automaticamente (', j.timeout_seconds, ' s).')
+            WHERE r.status IN (%s, %s)
+              AND r.started_at <= DATE_SUB(%s, INTERVAL GREATEST(j.timeout_seconds, 1) SECOND)
+            """,
+            (
+                STATUS_FAILED,
+                now,
+                now,
+                STATUS_QUEUED,
+                STATUS_RUNNING,
+                now,
+            ),
+        )
+        affected_rows = int(cursor.rowcount or 0)
+        connection.commit()
+        cursor.close()
+
+    return affected_rows
+
+
 def list_recent_runs(limit: int = 50) -> list[dict[str, Any]]:
     with db_connection() as connection:
         cursor = connection.cursor(dictionary=True)

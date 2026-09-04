@@ -55,6 +55,30 @@
         </div>
     </div>
 
+    {# ── Búsqueda rápida de jobs ETL ── #}
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-light border-bottom">
+            <strong>Buscar jobs ETL</strong>
+        </div>
+        <div class="card-body">
+            <div class="row g-3 align-items-center">
+                <div class="col-12">
+                    <label class="visually-hidden" for="etl-job-search">Buscar jobs</label>
+                    <div class="input-group input-group-lg">
+                        <span class="input-group-text bg-white"><i class="fas fa-search text-muted"></i></span>
+                        <input
+                            id="etl-job-search"
+                            type="search"
+                            class="form-control"
+                            placeholder="Buscar por nombre, ID o descripción"
+                            aria-label="Buscar jobs ETL"
+                        >
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     {# ── Tabla de jobs ── #}
     <div class="card border-0 shadow-sm">
         <div class="card-header bg-light border-bottom d-flex justify-content-between align-items-center">
@@ -77,7 +101,7 @@
                     </thead>
                     <tbody>
                         {% for job in jobs %}
-                        <tr data-job-id="{{ job.job_id }}">
+                        <tr data-job-id="{{ job.job_id }}" data-dependency-group="{{ job.dependency_group or 'Otros' }}" class="job-row">
                             <td><code>{{ job.job_id }}</code><br><strong>{{ job.name }}</strong></td>
                             <td class="text-muted small">{{ job.description }}</td>
                             <td>

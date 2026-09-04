@@ -9,6 +9,32 @@ const jobs = ref([])
 const saving = ref({})
 const savedMsg = ref({})
 
+function formatArrayValue(key, value) {
+  if (!Array.isArray(value)) return value ?? ''
+  if (key.endsWith('_paths')) return value.join('\n')
+  return value.join(', ')
+}
+
+function parseArrayValue(key, rawValue, defaultValue) {
+  const text = String(rawValue ?? '').trim()
+  if (!text) return []
+
+  const sample = Array.isArray(defaultValue) && defaultValue.length ? defaultValue[0] : ''
+  const tokens = key.endsWith('_paths')
+    ? text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split(/\n|;/)
+    : text.split(',')
+
+  const cleaned = tokens.map((value) => value.trim()).filter(Boolean)
+  if (typeof sample === 'number') {
+    return cleaned.map((value) => parseInt(value, 10)).filter((value) => !Number.isNaN(value))
+  }
+  return cleaned
+}
+
+function isMultilineField(key, defVal) {
+  return Array.isArray(defVal) && key.endsWith('_paths')
+}
+
 onMounted(async () => {
   try {
     const { data } = await axios.get('/api/etl/params')
@@ -18,7 +44,7 @@ onMounted(async () => {
         Object.entries(job.default_params || {}).map(([k, defVal]) => {
           const lastVal = (job.last_params || {})[k]
           const v = lastVal !== undefined ? lastVal : defVal
-          return [k, Array.isArray(v) ? v.join(', ') : (v ?? '')]
+          return [k, formatArrayValue(k, v)]
         })
       ),
     }))
@@ -37,7 +63,7 @@ async function saveParams(job) {
       const defVal = job.default_params[k]
       const val = String(rawVal).trim()
       if (Array.isArray(defVal)) {
-        params[k] = val.split(',').map(v => parseInt(v.trim(), 10)).filter(n => !isNaN(n))
+        params[k] = parseArrayValue(k, val, defVal)
       } else if (typeof defVal === 'number') {
         params[k] = parseFloat(val) || 0
       } else {
@@ -101,7 +127,15 @@ function getStatus(status) {
             <form @submit.prevent="saveParams(job)" class="row g-3">
               <div class="col-12" v-for="(defVal, key) in job.default_params" :key="key">
                 <label class="form-label small mb-1">{{ key.replace(/_/g, ' ') }}</label>
+                <textarea
+                  v-if="isMultilineField(key, defVal)"
+                  v-model="job.formParams[key]"
+                  class="form-control"
+                  rows="3"
+                  placeholder="Una ruta por línea"
+                ></textarea>
                 <input
+                  v-else
                   v-model="job.formParams[key]"
                   :type="inputType(defVal)"
                   class="form-control"

@@ -15,6 +15,8 @@ from app.services.etl.helpers import dataframe_to_sql, execute_query, validate_c
 MIN_POINTS_CYCLE_1 = 8
 MIN_POINTS_CYCLE_2 = 14
 FILTER_COLUMN = "filtro"
+SELECTED_FILTER_VALUE = 2
+DEFAULT_EXPORT_FILTER_MIN = 2
 
 
 def _tukey_bounds(values: pd.Series) -> tuple[float, float]:
@@ -28,6 +30,36 @@ def _normalize_column_name(name: str) -> str:
     normalized = unicodedata.normalize("NFKD", str(name))
     normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
     return normalized.strip().lower().replace(" ", "_")
+
+
+def _mode_peak_value(values: pd.Series) -> float:
+    valid_values = pd.to_numeric(values, errors="coerce").dropna()
+    if valid_values.empty:
+        return np.nan
+
+    mode_values = valid_values.mode()
+    if mode_values.empty:
+        return np.nan
+
+    return float(mode_values.min())
+
+
+def _date_series_to_yyww(values: pd.Series) -> pd.Series:
+    fechas = pd.to_datetime(values, errors="coerce")
+    iso = fechas.dt.isocalendar()
+    return ((iso.year % 100) * 100 + iso.week).astype("Int64")
+
+
+def _resolve_export_filter_min(params: dict[str, Any] | None) -> int:
+    raw_value = (params or {}).get("final_filter_value", DEFAULT_EXPORT_FILTER_MIN)
+    try:
+        filter_min = int(raw_value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("'final_filter_value' debe ser un entero entre 0 y 2.") from exc
+
+    if filter_min < 0 or filter_min > SELECTED_FILTER_VALUE:
+        raise ValueError("'final_filter_value' debe estar entre 0 y 2.")
+    return filter_min
 
 
 def _procesar_curvas(path_csv: str, anio: int) -> pd.DataFrame:
@@ -62,7 +94,14 @@ def _procesar_curvas(path_csv: str, anio: int) -> pd.DataFrame:
 
 def _calcular_usemana(grupo: pd.DataFrame) -> pd.DataFrame:
     grupo = grupo.reset_index(drop=True)
-    if len(grupo) < 4:
+    ciclo_value = pd.to_numeric(grupo.get("ciclo"), errors="coerce").dropna()
+    window_size = 4
+    if not ciclo_value.empty:
+        ciclo = int(ciclo_value.iloc[0])
+        if ciclo == 2:
+            window_size = 10
+
+    if len(grupo) < window_size:
         grupo["pico"] = np.nan
         grupo["suma_pico"] = np.nan
         grupo["puntos_pico"] = np.nan
@@ -70,13 +109,13 @@ def _calcular_usemana(grupo: pd.DataFrame) -> pd.DataFrame:
         grupo["puntos"] = len(grupo)
         return grupo
 
-    rolling_sum = grupo["fm"].rolling(window=4).sum()
+    rolling_sum = grupo["fm"].rolling(window=window_size, min_periods=window_size).sum()
     idx_max_window = rolling_sum.idxmax()
     max_sum = rolling_sum.max()
 
     grupo["pico"] = grupo.loc[idx_max_window, "edad"]
     grupo["suma_pico"] = max_sum
-    grupo["puntos_pico"] = 4
+    grupo["puntos_pico"] = window_size
     mask = grupo["fm"] > 0
     grupo["termina_curva"] = grupo.loc[mask, "edad"].iloc[-1] if mask.any() else np.nan
     grupo["puntos"] = len(grupo)
@@ -111,18 +150,62 @@ def _apply_curve_filter(
     curve_stats = curve_stats.merge(thresholds, on=[variety_column, cycle_column], how="left")
 
     puntos_ok = (
-        ((curve_stats[cycle_column] == 1) & (curve_stats["puntos"] > MIN_POINTS_CYCLE_1))
-        | ((curve_stats[cycle_column] == 2) & (curve_stats["puntos"] > MIN_POINTS_CYCLE_2))
+        ((curve_stats[cycle_column] == 1) & (curve_stats["puntos"] >= MIN_POINTS_CYCLE_1))
+        | ((curve_stats[cycle_column] == 2) & (curve_stats["puntos"] >= MIN_POINTS_CYCLE_2))
     )
     tukey_ok = curve_stats["suma_fm"].between(curve_stats["lower_bound"], curve_stats["upper_bound"], inclusive="both")
     curve_stats[FILTER_COLUMN] = np.where(puntos_ok & tukey_ok, 1, 0)
 
+    if "pico" in df.columns:
+        peak_stats = (
+            df.groupby(group_columns, dropna=False, as_index=False)
+            .agg(pico=("pico", "first"))
+        )
+        curve_stats = curve_stats.merge(peak_stats, on=group_columns, how="left")
+
+        peak_modes = (
+            curve_stats[curve_stats[FILTER_COLUMN] == 1]
+            .groupby([variety_column, cycle_column], dropna=False, as_index=False)
+            .agg(pico_moda=("pico", _mode_peak_value))
+        )
+        curve_stats = curve_stats.merge(peak_modes, on=[variety_column, cycle_column], how="left")
+
+        near_peak_mode = curve_stats["pico"].between(
+            curve_stats["pico_moda"] - 2,
+            curve_stats["pico_moda"] + 2,
+            inclusive="both",
+        )
+        curve_stats[FILTER_COLUMN] = np.where(
+            (curve_stats[FILTER_COLUMN] == 1) & near_peak_mode,
+            SELECTED_FILTER_VALUE,
+            curve_stats[FILTER_COLUMN],
+        )
+
     return df.merge(curve_stats[group_columns + [FILTER_COLUMN]], on=group_columns, how="left")
 
 
+def _split_param_list(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        return [item for item in value if item is not None]
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return []
+        if "\n" in text or "\r" in text:
+            return [item.strip() for item in text.replace("\r\n", "\n").replace("\r", "\n").split("\n") if item.strip()]
+        if ";" in text:
+            return [item.strip() for item in text.split(";") if item.strip()]
+        if "," in text:
+            return [item.strip() for item in text.split(",") if item.strip()]
+        return [text]
+    return [value]
+
+
 def _resolve_curve_sources(params: dict[str, Any] | None) -> list[tuple[str, int]]:
-    raw_paths = list((params or {}).get("curve_paths") or [])
-    raw_years = list((params or {}).get("curve_years") or [])
+    raw_paths = _split_param_list((params or {}).get("curve_paths"))
+    raw_years = _split_param_list((params or {}).get("curve_years"))
     if not raw_paths or not raw_years:
         raise ValueError("Debes enviar 'curve_paths' y 'curve_years'.")
     if len(raw_paths) != len(raw_years):
@@ -133,17 +216,22 @@ def _resolve_curve_sources(params: dict[str, Any] | None) -> list[tuple[str, int
         path = str(path_value).strip()
         if not path:
             continue
-        sources.append((path, int(year_value)))
+        try:
+            year = int(year_value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Año inválido para la curva '{path}': {year_value!r}.") from exc
+        sources.append((path, year))
 
     if not sources:
         raise ValueError("No se encontraron curvas válidas para procesar.")
     return sources
 
 
-def _build_curvas_resumen_todas() -> pd.DataFrame:
+def _build_curvas_resumen_todas(export_filter_min: int = DEFAULT_EXPORT_FILTER_MIN) -> pd.DataFrame:
     rows_curvas = execute_query(
         """
         SELECT
+            c.lunes AS fecha_curva,
             c.finca,
             c.cflor AS flor,
             c.bloque,
@@ -162,10 +250,31 @@ def _build_curvas_resumen_todas() -> pd.DataFrame:
     ) or []
     df_curvas = pd.DataFrame(
         rows_curvas,
-        columns=["finca", "flor", "bloque", "variedad", "cosecha", "edad", "fm", "descarta_curva"],
+        columns=["fecha_curva", "finca", "flor", "bloque", "variedad", "cosecha", "edad", "fm", "descarta_curva"],
     )
     if df_curvas.empty:
-        raise RuntimeError("No hay datos en ld_curvas_clavel para construir curvas_resumen_todas.csv.")
+        return pd.DataFrame(
+            columns=[
+                "fecha_curva",
+                "finca",
+                "flor",
+                "bloque",
+                "variedad",
+                "cosecha",
+                "edad",
+                "fm",
+                "descarta_curva",
+                "ciclo",
+                "pico",
+                "suma_pico",
+                "puntos",
+                "puntos_ppico",
+                "ncosecha",
+                "yyww",
+                "meta",
+                "dif",
+            ]
+        )
 
     rows_metas = execute_query(
         """
@@ -194,6 +303,7 @@ def _build_curvas_resumen_todas() -> pd.DataFrame:
 
     df_curvas["edad"] = pd.to_numeric(df_curvas["edad"], errors="coerce")
     df_curvas["fm"] = pd.to_numeric(df_curvas["fm"], errors="coerce")
+    df_curvas["fecha_curva"] = pd.to_datetime(df_curvas["fecha_curva"], errors="coerce")
     df_curvas["flor"] = df_curvas["flor"].astype(str).str.strip()
     df_curvas["variedad"] = df_curvas["variedad"].astype(str).str.strip().str.replace(" ", "_", regex=False)
     df_curvas["cosecha"] = df_curvas["cosecha"].astype(str).str.strip()
@@ -229,9 +339,12 @@ def _build_curvas_resumen_todas() -> pd.DataFrame:
         "variedad",
     )
     df_resultado2_clean = df_resultado2.dropna().copy()
-    df_resultado2_clean = df_resultado2_clean[df_resultado2_clean[FILTER_COLUMN] == 1].copy()
+    df_resultado2_clean = df_resultado2_clean[df_resultado2_clean[FILTER_COLUMN] >= export_filter_min].copy()
     if df_resultado2_clean.empty:
-        raise RuntimeError("Ninguna curva de ld_curvas_clavel cumplió el filtro para exportar curvas_resumen_todas.csv.")
+        raise RuntimeError(
+            "Ninguna curva de ld_curvas_clavel cumplió el filtro para exportar curvas_resumen_todas.csv "
+            f"(final_filter_value={export_filter_min})."
+        )
 
     resumen2 = (
         df_resultado2_clean
@@ -258,8 +371,6 @@ def _build_curvas_resumen_todas() -> pd.DataFrame:
         .merge(df_ppico2, on=["finca", "bloque", "variedad", "cosecha"], how="left", suffixes=("_base", "_ppico"))
     )
 
-    df_export2[FILTER_COLUMN] = 1
-
     # Mantiene una sola columna de puntos de pico con nombre estable.
     if "puntos_base" in df_export2.columns:
         df_export2 = df_export2.drop(columns=["puntos_base"])
@@ -270,6 +381,8 @@ def _build_curvas_resumen_todas() -> pd.DataFrame:
         df_export3 = pd.merge(df_export2, df_cosechas, on="cosecha", how="left")
     else:
         df_export3 = df_export2.copy()
+
+    df_export3["yyww"] = _date_series_to_yyww(df_export3["fecha_curva"])
 
     if not df_metas.empty and {"finca", "bloque", "variedad", "cosecha", "suma_ciclo1"}.issubset(set(resumen2.columns)):
         df_meta_real = pd.merge(
@@ -286,6 +399,7 @@ def _build_curvas_resumen_todas() -> pd.DataFrame:
 
 def generate_resumir_curvas_usadas(params: dict[str, Any] | None = None) -> str:
     sources = _resolve_curve_sources(params)
+    export_filter_min = _resolve_export_filter_min(params)
 
     frames = [_procesar_curvas(path_csv=path_csv, anio=anio) for path_csv, anio in sources]
     df_resultado = pd.concat(frames, ignore_index=True)
@@ -310,9 +424,12 @@ def generate_resumir_curvas_usadas(params: dict[str, Any] | None = None) -> str:
 
     df_resultado = pd.concat(processed_groups, ignore_index=True)
     df_resultado = _apply_curve_filter(df_resultado, ["prg", "variedad", "ciclo"], "variedad")
-    df_resultado_filtrado = df_resultado[df_resultado[FILTER_COLUMN] == 1].copy()
+    df_resultado_filtrado = df_resultado[df_resultado[FILTER_COLUMN] >= export_filter_min].copy()
     if df_resultado_filtrado.empty:
-        raise RuntimeError("Ninguna curva cumplió el filtro para exportar curvas_resumen.csv.")
+        raise RuntimeError(
+            "Ninguna curva cumplió el filtro para exportar curvas_resumen.csv "
+            f"(final_filter_value={export_filter_min})."
+        )
 
     resumen = (
         df_resultado_filtrado
@@ -339,15 +456,13 @@ def generate_resumir_curvas_usadas(params: dict[str, Any] | None = None) -> str:
         .merge(df_ppico, on=["prg", "variedad"], how="left")
     )
 
-    df_export[FILTER_COLUMN] = 1
-
     dataframe_to_sql(df_resultado, "resumen_curvas", if_exists="replace")
 
     output_path = Path(normalize_path(r"//172.10.18.2/Usuarios/Outputs/curvas_resumen.csv"))
     output_path.parent.mkdir(parents=True, exist_ok=True)
     df_export.to_csv(output_path, index=False, encoding="utf-8-sig")
 
-    df_export3 = _build_curvas_resumen_todas()
+    df_export3 = _build_curvas_resumen_todas(export_filter_min=export_filter_min)
     output_todas_path = Path(normalize_path(r"//172.10.18.2/Usuarios/Outputs/curvas_resumen_todas.csv"))
     output_todas_path.parent.mkdir(parents=True, exist_ok=True)
     df_export3.to_csv(output_todas_path, index=False, encoding="utf-8-sig")

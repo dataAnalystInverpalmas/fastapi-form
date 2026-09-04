@@ -8,7 +8,10 @@ from app.services.etl_jobs.excel_generator import generate_excel_file
 from app.services.etl_jobs.fusarium_pipeline_generator import generate_fusarium_pipeline
 from app.services.etl_jobs.produccion_picos_generator import generate_produccion_picos_report
 from app.services.etl_jobs.production_pipeline_generator import generate_production_pipeline
-from app.services.etl_jobs.producto_procesado_generator import generate_producto_procesado_csv
+from app.services.etl_jobs.producto_procesado_generator import (
+    generate_producto_procesado_csv,
+    generate_producto_procesado_historico_csv,
+)
 from app.services.etl_jobs.proyecciones_generator import generate_proyecciones_csv
 from app.services.etl_jobs.qualities_pipeline_generator import generate_qualities_pipeline
 from app.services.etl_jobs.anomalias_lonas_generator import generate_anomalias_lonas
@@ -20,13 +23,19 @@ from app.services.etl_jobs.tabla_curvas_clavel_generator import generate_tabla_c
 from app.services.etl_jobs.load_fusarium_generator import load_maestra_fusarium
 from app.services.etl_jobs.process_guarde_generator import generate_process_guarde
 from app.services.etl_jobs.aportes_grados_generator import generate_aportes_grados
+from app.services.etl_jobs.aportes_ponderados_problemas_generator import (
+    exporta_aportes_ponderados_problemas_excel,
+    generate_aportes_ponderados_problemas,
+)
 from app.services.etl_jobs.process_siembras_generator import generate_process_siembras_report
+from app.services.etl_jobs.proyectar_rosas_generator import generate_proyectar_rosas_report
 from app.services.etl_jobs.siembras_teo_real_generator import generate_siembras_teo_real
 
 __all__ = [
     "generate_excel_file",
     "generate_bajas_exportado_reports",
     "generate_producto_procesado_csv",
+    "generate_producto_procesado_historico_csv",
     "generate_fusarium_pipeline",
     "generate_qualities_pipeline",
     "generate_proyecciones_csv",
@@ -44,6 +53,9 @@ __all__ = [
     "load_maestra_fusarium",
     "generate_process_guarde",
     "generate_aportes_grados",
+    "generate_aportes_ponderados_problemas",
+    "exporta_aportes_ponderados_problemas_excel",
     "generate_process_siembras_report",
+    "generate_proyectar_rosas_report",
     "generate_siembras_teo_real",
 ]

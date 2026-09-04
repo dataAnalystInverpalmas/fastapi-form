@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -6,10 +7,36 @@ from app.services.etl_jobs.productivity_varieties_report_generator import (
     _append_all_farms_base_rows,
     _build_cycle_rows,
     _build_total_rows,
+    _prepare_upstream_summaries,
 )
 
 
 class ProductivityVarietiesReportTests(unittest.TestCase):
+    @patch("app.services.etl_jobs.productivity_varieties_report_generator.generate_fusarium_pipeline")
+    @patch("app.services.etl_jobs.productivity_varieties_report_generator.generate_qualities_pipeline")
+    @patch("app.services.etl_jobs.productivity_varieties_report_generator.generate_production_pipeline")
+    @patch("app.services.etl_jobs.productivity_varieties_report_generator.resolve_date_range_params")
+    def test_prepare_upstream_summaries_uses_same_date_range_for_all_sources(
+        self,
+        mock_resolve,
+        mock_production,
+        mock_qualities,
+        mock_fusarium,
+    ) -> None:
+        mock_resolve.return_value = (
+            pd.Timestamp("2026-01-05"),
+            pd.Timestamp("2026-07-12"),
+        )
+
+        params = {"fecha_inicio": "2026-01-05", "fecha_fin": "2026-07-12"}
+        result = _prepare_upstream_summaries(params=params)
+
+        self.assertEqual(result, params)
+        mock_resolve.assert_called_once_with(params)
+        mock_production.assert_called_once_with(params=params)
+        mock_qualities.assert_called_once_with(params=params)
+        mock_fusarium.assert_called_once_with(params=params)
+
     def test_append_all_farms_base_rows_adds_finca_000_template_rows(self) -> None:
         df_base = pd.DataFrame(
             {

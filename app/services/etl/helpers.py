@@ -13,6 +13,7 @@ from sqlalchemy import create_engine
 from app.core.db import db_connection
 from app.core.settings import settings
 from app.services.utils.dbf_reader import normalize_path
+from app.services.utils.pathing import is_docker_runtime
 from app.services.utils.date_service import (
     ajustar_a_jueves as _ajustar_a_jueves,
     create_date_table as _create_date_table,
@@ -32,7 +33,11 @@ def read_dbf(path: str) -> pd.DataFrame:
         raise FileNotFoundError(f"No existe el archivo DBF: {normalized_path}")
 
     last_error: Exception | None = None
-    for encoding in settings.DBF_ENCODINGS:
+    encodings = list(settings.DBF_ENCODINGS)
+    if is_docker_runtime():
+        encodings = [encoding for encoding in encodings if encoding != "utf-8"] + ["utf-8"]
+
+    for encoding in encodings:
         try:
             table = DBF(normalized_path, encoding=encoding)
             rows = [dict(record) for record in table]

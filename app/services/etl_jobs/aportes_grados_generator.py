@@ -17,11 +17,7 @@ from app.services.etl.helpers import normalize_finca_series, resolve_date_range_
 PROCESADO_QUERY = """
 SELECT
     fecha, flor, finca, bloque, nvari,
-    CASE
-        WHEN fuente IN ('Clasificacion') THEN 'procesado'
-        WHEN fuente IN ('Dirigida', 'AjFito Cultivo') THEN 'dirigida_cultivo'
-        WHEN fuente IN ('Dirigida Finca-Flor-Variedad', 'AjFito Cultivo DFFV') THEN 'dirigida_pc'
-    END AS fuente,
+    fuente,
     grado,
     SUM(tallos) AS tallos
 FROM ld_producto_procesado
@@ -68,7 +64,32 @@ def _load_procesado(fecha_inicio: pd.Timestamp, fecha_fin: pd.Timestamp) -> pd.D
     df["grado"] = df["grado"].astype(str).str.strip()
     df["tallos"] = pd.to_numeric(df["tallos"], errors="coerce").fillna(0)
     df = df.dropna(subset=["fecha"]).copy()
+    df = _map_fuente(df)
     return df
+
+
+def _map_fuente(df: pd.DataFrame) -> pd.DataFrame:
+    """Mapea la fuente cruda a la etiqueta de salida.
+
+    'Dirigida' siempre queda en 'solo dirigida' y además se duplica
+    como 'dirigida_cultivo' en todos los casos.
+    Así, 'dirigida_cultivo' siempre incluye Dirigida y, cuando exista,
+    también suma AjFito Cultivo.
+    """
+    _MAP = {
+        "Clasificacion": "procesado",
+        "Dirigida": "solo dirigida",
+        "AjFito Cultivo": "dirigida_cultivo",
+        "Dirigida Finca-Flor-Variedad": "dirigida_pc",
+        "AjFito Cultivo DFFV": "dirigida_pc",
+    }
+    df = df.copy()
+    df["fuente"] = df["fuente"].map(_MAP)
+
+    # Duplicar siempre 'solo dirigida' como 'dirigida_cultivo'.
+    extra = df[df["fuente"] == "solo dirigida"].copy()
+    extra["fuente"] = "dirigida_cultivo"
+    return pd.concat([df, extra], ignore_index=True)
 
 
 def _load_dates(fecha_inicio: pd.Timestamp, fecha_fin: pd.Timestamp) -> pd.DataFrame:
@@ -98,13 +119,13 @@ def _build_aportes_export(df: pd.DataFrame, df_dates: pd.DataFrame) -> pd.DataFr
     df = df.dropna(subset=["aass"]).copy()
     df["aass"] = df["aass"].astype(int)
 
-    GROUP_KEYS = ["aass", "finca", "flor", "bloque", "nvari", "fuente", "grado"]
+    GROUP_KEYS = ["aass", "finca", "flor", "nvari", "fuente", "grado"]
     df_grouped = (
         df.groupby(GROUP_KEYS, as_index=False)["tallos"]
         .sum()
     )
 
-    PARTITION_KEYS = ["aass", "finca", "flor", "bloque", "nvari", "fuente"]
+    PARTITION_KEYS = ["aass", "finca", "flor", "nvari", "fuente"]
     df_grouped["aporte"] = (
         df_grouped.groupby(PARTITION_KEYS)["tallos"]
         .transform(lambda s: s / s.sum())

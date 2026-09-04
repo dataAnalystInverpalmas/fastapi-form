@@ -41,10 +41,38 @@ FINAL_COLUMNS: list[str] = [
     "ncosecha",
 ]
 
+FARM_REPLACEMENTS: dict[str, str] = {
+    "INVERPALMAS": "001",
+    "PALERMO": "002",
+    "001": "001",
+    "002": "002",
+    "1": "001",
+    "2": "002",
+    "001.0": "001",
+    "002.0": "002",
+    "1.0": "001",
+    "2.0": "002",
+}
 
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
+
+def _normalize_finca_code(value: Any) -> str:
+    if pd.isna(value):
+        return "000"
+
+    raw = str(value).strip().upper()
+    if raw in FARM_REPLACEMENTS:
+        return FARM_REPLACEMENTS[raw]
+
+    numeric = pd.to_numeric(raw, errors="coerce")
+    if pd.notna(numeric):
+        return str(int(numeric)).zfill(3)
+
+    return FARM_REPLACEMENTS.get(raw, "000")
+
 
 def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
@@ -147,7 +175,7 @@ def _load_proyecciones_picos() -> pd.DataFrame:
     df["matas"] = pd.to_numeric(df["matas"], errors="coerce")
     df["edad"] = pd.to_numeric(df["edad"], errors="coerce")
     df["tipo"] = df["tipo"].astype(str).str.strip()
-    df["finca"] = df["finca"].astype(str).str.strip()
+    df["finca"] = df["finca"].map(_normalize_finca_code).fillna("000")
 
     df["pico"] = _compute_pico(df["edad"])
 
@@ -276,7 +304,7 @@ def _process_tika_picos(
 
     df["tipo"] = tipo
     df["flor"] = df["flor"].astype(str).str.strip().replace(FLOWER_MAP)
-    df["finca"] = np.where(df["finca"].astype(str).str.upper() == "INVERPALMAS", "001", "002")
+    df["finca"] = df["finca"].map(_normalize_finca_code).fillna("000")
 
     df = df.rename(columns={
         "cantidad": "tallos",

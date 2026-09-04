@@ -11,9 +11,9 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.core.settings import settings
-from app.services.queries.aportes_ponderados_query import exporta_aportes_ponderados_problemas_excel
+from app.services.etl_jobs.aportes_ponderados_problemas_generator import exporta_aportes_ponderados_problemas_excel
 from app.services.queries.cortes_lonas_query import exporta_cortes_lonas_excel
-from app.services.utils.dbf_reader import read_dbf_file
+from app.services.utils.dbf_reader import export_dbf_to_csv, read_dbf_file
 from app.services.etl.params import normalize_job_params, resolve_params_for_run
 from app.services.etl.registry import list_jobs as list_jobs_from_catalog
 from app.services.etl.repository import (
@@ -76,6 +76,12 @@ def consultar_dbf(
     limite: Optional[int] = Form(default=settings.DEFAULT_LIMIT),
 ):
     data, error = read_dbf_file(ruta_archivo, limit=limite)
+    export_path = None
+    if not error:
+        try:
+            export_path = export_dbf_to_csv(ruta_archivo, output_dir=settings.EXCEL_OUTPUT_DIR, limit=limite)
+        except Exception:
+            export_path = None
     return templates.TemplateResponse(
         "consultar.html",
         {
@@ -85,6 +91,7 @@ def consultar_dbf(
             "ruta_archivo": ruta_archivo,
             "default_path": settings.DEFAULT_DBF_PATH,
             "limite": limite,
+            "export_path": export_path,
         },
     )
 
@@ -95,14 +102,21 @@ def etl_jobs_page(request: Request):
         str(row.get("job_id", "")): row for row in list_jobs_with_state()
     }
     jobs = []
+    selected_group = request.query_params.get("group", "Todos")
+    allowed_groups = {"Todos", "Siembras", "Producción", "Planeación", "Analítica", "Otros"}
+    selected_group = selected_group if selected_group in allowed_groups else "Todos"
 
     for job_def in list_jobs_from_catalog():
         if job_def.job_id.startswith("load_") and job_def.job_id not in ETL_LOAD_EXTRA_IDS:
             continue
 
+        dependency_group = job_def.dependency_group or "Otros"
+        if selected_group != "Todos" and dependency_group != selected_group:
+            continue
+
         status_row = status_by_job.get(job_def.job_id)
         if status_row:
-            jobs.append(status_row)
+            jobs.append({**status_row, "dependency_group": dependency_group})
             continue
 
         jobs.append(
@@ -116,6 +130,7 @@ def etl_jobs_page(request: Request):
                 "updated_at": None,
                 "last_status": None,
                 "last_started_at": None,
+                "dependency_group": dependency_group,
             }
         )
 
@@ -125,6 +140,7 @@ def etl_jobs_page(request: Request):
         {
             "request": request,
             "jobs": jobs,
+            "selected_group": selected_group,
             "mensaje": request.query_params.get("msg"),
             "error": request.query_params.get("error"),
         },
@@ -303,7 +319,7 @@ def run_aportes_ponderados_problemas_process(
     return FileResponse(
         path=output_path,
         filename=filename,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        media_type="text/csv; charset=utf-8",
     )
 
 from app.services.tests.test import get_test_endpoint  # noqa: F401

@@ -44,6 +44,15 @@
             </div>
         </div>
     </section>
+    {% if export_path %}
+    <section class="alert-section mb-4">
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <i class="fas fa-file-csv me-2"></i>
+            <strong>CSV exportado:</strong> {{ export_path }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    </section>
+    {% endif %}
     {% if error %}
     <section class="alert-section mb-4">
         <div class="alert alert-danger alert-dismissible fade show" role="alert">

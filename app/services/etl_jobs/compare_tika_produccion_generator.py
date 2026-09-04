@@ -23,8 +23,10 @@ PROYECCIONES_TYPE_MAP = {
     "REAL": "Real",
     "AJ": "Proy_Aj",
     "PROY_AJ": "Proy_Aj",
+    "PROYAJ": "Proy_Aj",
     "IN": "Proy_In",
     "PROY_IN": "Proy_In",
+    "PROYIN": "Proy_In",
     "PT": "Pto",
     "PTO": "Pto",
 }
@@ -225,6 +227,7 @@ def _process_tika_projection(modelo_tika: int, tipo: str, df_dates: pd.DataFrame
     files = [
         Path(normalize_path(f"//svrinverpalmas/Usuarios/Hilder/Data/tika/{modelo_tika}/proy1.csv")),
         Path(normalize_path(f"//svrinverpalmas/Usuarios/Hilder/Data/tika/{modelo_tika}/proy2.csv")),
+        Path(normalize_path(f"//svrinverpalmas/Usuarios/Hilder/Data/tika/{modelo_tika}/proy3.csv"))
     ]
     frames: list[pd.DataFrame] = []
     for path in files:
@@ -276,32 +279,11 @@ def _load_demanda(df_dates: pd.DataFrame, df_vari: pd.DataFrame) -> pd.DataFrame
     return df[["fecha", "flor", "variedad", "color", "tallos", "tipo"]].copy()
 
 
-def _load_prueba_consuelo(df_vari: pd.DataFrame) -> pd.DataFrame:
-    path = Path(normalize_path(r"\\svrinverpalmas\Usuarios\Hilder\Data\Pto 2026vPRUEBA.xlsx"))
-    if not path.exists():
-        return pd.DataFrame(columns=["fecha", "flor", "variedad", "color", "tallos", "tipo"])
-    df = pd.read_excel(path)
-    df = _normalize_columns(df)
-    validate_columns(df, {"fecha", "flor", "nvari", "tallos"}, path.name)
-    df = (
-        df.groupby(["fecha", "flor", "nvari"], dropna=False)["tallos"]
-        .sum()
-        .reset_index()
-        .rename(columns={"nvari": "variedad"})
-    )
-    df["variedad"] = _normalize_text(df["variedad"])
-    df = pd.merge(df, df_vari.drop(columns=["flor"]), on="variedad", how="left")
-    df["tipo"] = "PTNuevo"
-    df["tallos"] = pd.to_numeric(df["tallos"], errors="coerce").fillna(0) * settings.COMPARE_TIKA_TALLOS_FACTOR
-    return df[["fecha", "flor", "variedad", "color", "tallos", "tipo"]].copy()
-
-
 def generate_compare_tika_produccion_report(params: dict[str, Any] | None = None) -> str:
     modelo_tika_a, modelo_tika_b, modelo_tika_c, modelo_tika_d = _resolve_modelos_tika(params)
     df_dates, df_vari = _load_dates_and_variedades()
 
     datos_re, datos_in, datos_aj, datos_pt = _load_proyecciones_compare(df_vari)
-    df_consuelo = _load_prueba_consuelo(df_vari)
     df_despachos = _load_despachos()
     df_quipus = _load_quipus_compare(df_dates, df_vari)
     df_demanda = _load_demanda(df_dates, df_vari)
@@ -332,6 +314,7 @@ def generate_compare_tika_produccion_report(params: dict[str, Any] | None = None
     frames = [
         df_despachos,
         df_demanda,
+
         df_tika_a,
         df_tika_b,
         df_tika_c,

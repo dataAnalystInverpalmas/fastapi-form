@@ -3,6 +3,7 @@
 from app.core.settings import settings
 from app.services.etl.helpers import default_previous_year_week_range
 from app.services.dbf_loaders import (
+    load_maestra_arre,
     load_maestra_causas,
     load_maestra_colores,
     load_maestra_cosechas,
@@ -18,6 +19,7 @@ from app.services.etl.definition import ETLJobDefinition
 from app.services.etl_jobs import (
     generate_anomalias_lonas,
     generate_aportes_grados,
+    generate_aportes_ponderados_problemas,
     generate_bajas_exportado_reports,
     generate_compare_tika_produccion_report,
     generate_comparar_picos_demanda_report,
@@ -30,8 +32,10 @@ from app.services.etl_jobs import (
     generate_produccion_picos_report,
     generate_productivity_varieties_report,
     generate_producto_procesado_csv,
+    generate_producto_procesado_historico_csv,
     generate_process_guarde,
     generate_process_siembras_report,
+    generate_proyectar_rosas_report,
     generate_siembras_teo_real,
     generate_proyecciones_csv,
     generate_qualities_pipeline,
@@ -47,7 +51,7 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
         ETLJobDefinition(
             job_id="excel_labores",
             name="Generar Excel de Labores",
-            description="Construye y exporta el reporte labores_de_siembra.xlsx.",
+            description="Construye y exporta el reporte de labores en Excel.",
             allows_parallel=True,
             timeout_seconds=900,
             runner=generate_excel_file,
@@ -61,12 +65,29 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             runner=generate_bajas_exportado_reports,
         ),
         ETLJobDefinition(
+            job_id="producto_procesado_historico_csv",
+            name="Producto Procesado Historico a CSV",
+            description="Carga historicos pprocesado_2021..2025 y reemplaza ld_producto_procesado (sin exportar CSV).",
+            allows_parallel=True,
+            timeout_seconds=1800,
+            runner=generate_producto_procesado_historico_csv,
+            dependency_group="Producción",
+            flow_group="02 - Fuentes y Base",
+        ),
+        ETLJobDefinition(
             job_id="producto_procesado_csv",
-            name="Producto Procesado a CSV",
-            description="Genera pprocesado.csv desde pprocesado*.dbf con filtros de flor, fuente y fecha.",
+            name="Producto Procesado Incremental a CSV",
+            description="Carga incremental desde pprocesado.dbf por fecha de corte, anexa en ld_producto_procesado y actualiza pprocesado.csv.",
             allows_parallel=True,
             timeout_seconds=1800,
             runner=generate_producto_procesado_csv,
+            supports_params=True,
+            default_params={
+                "fecha_inicio_incremental": settings.PPROCESADO_INCREMENTAL_START_DATE,
+                "fecha_inicio_exportacion": settings.PPROCESADO_INCREMENTAL_START_DATE,
+            },
+            dependency_group="Producción",
+            flow_group="02 - Fuentes y Base",
         ),
         ETLJobDefinition(
             job_id="proyecciones_csv",
@@ -75,6 +96,9 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             allows_parallel=True,
             timeout_seconds=1800,
             runner=generate_proyecciones_csv,
+            depends_on=["load_maestra_variedades", "load_maestra_colores"],
+            dependency_group="Producción",
+            flow_group="02 - Fuentes y Base",
         ),
         ETLJobDefinition(
             job_id="produccion_picos",
@@ -83,6 +107,21 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             allows_parallel=True,
             timeout_seconds=1800,
             runner=generate_produccion_picos_report,
+            depends_on=["proyecciones_csv"],
+            dependency_group="Producción",
+            flow_group="03 - Derivados Semanales",
+        ),
+        ETLJobDefinition(
+            job_id="proyectar_rosas",
+            name="Proyección Rosas",
+            description="Genera la proyección de rosas consultando la base de datos y no archivos CSV intermedios.",
+            allows_parallel=True,
+            timeout_seconds=1800,
+            runner=generate_proyectar_rosas_report,
+            supports_params=True,
+            default_params={"fecha_inicio": "2024-01-01", "fecha_fin": "2026-12-31"},
+            dependency_group="Producción",
+            flow_group="03 - Derivados Semanales",
         ),
         ETLJobDefinition(
             job_id="quipus_vs_proy",
@@ -91,6 +130,9 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             allows_parallel=True,
             timeout_seconds=2400,
             runner=generate_quipus_vs_proy_artifacts,
+            depends_on=["proyecciones_csv"],
+            dependency_group="Producción",
+            flow_group="03 - Derivados Semanales",
         ),
         ETLJobDefinition(
             job_id="pedidos_surtidos",
@@ -101,6 +143,8 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             runner=generate_pedidos_surtidos,
             supports_params=True,
             default_params={"proyeccion_anio": 2026},
+            dependency_group="Planeación",
+            flow_group="03 - Derivados Semanales",
         ),
         ETLJobDefinition(
             job_id="compare_tika_produccion_despachos",
@@ -111,6 +155,9 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             runner=generate_compare_tika_produccion_report,
             supports_params=True,
             default_params={"modelos_tika": [161, 328, 485, 405]},
+            depends_on=["proyecciones_csv", "quipus_vs_proy", "pedidos_surtidos"],
+            dependency_group="Planeación",
+            flow_group="04 - Analitica",
         ),
         ETLJobDefinition(
             job_id="comparar_picos_demanda",
@@ -121,6 +168,9 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             runner=generate_comparar_picos_demanda_report,
             supports_params=True,
             default_params={"modelo_tika": 485},
+            depends_on=["proyecciones_csv", "quipus_vs_proy"],
+            dependency_group="Planeación",
+            flow_group="04 - Analitica",
         ),
         ETLJobDefinition(
             job_id="dirigidas_analyzer",
@@ -131,6 +181,8 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             runner=generate_dirigidas_analyzer,
             supports_params=True,
             default_params={"muestras": 5, "tallos_min": 1000, "lonas_semana": 65},
+            depends_on=["proyecciones_csv", "load_plano_cultivo_fm", "load_tabla_nacional"],
+            flow_group="04 - Analitica",
         ),
         ETLJobDefinition(
             job_id="anomalias_lonas",
@@ -156,6 +208,7 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             allows_parallel=True,
             timeout_seconds=1800,
             runner=generate_tabla_curvas_clavel,
+            flow_group="02 - Fuentes y Base",
         ),
         ETLJobDefinition(
             job_id="production_pipeline_curvas",
@@ -173,6 +226,9 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
                 "smooth_polyorder": 2,
                 "force_valley_weeks_after_peak": 8,
             },
+            depends_on=["tabla_curvas_clavel"],
+            dependency_group="Producción",
+            flow_group="03 - Derivados Semanales",
         ),
         ETLJobDefinition(
             job_id="qualities_pipeline",
@@ -183,6 +239,9 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             runner=generate_qualities_pipeline,
             supports_params=True,
             default_params=dict(default_week_range),
+            depends_on=["producto_procesado_csv"],
+            dependency_group="Analítica",
+            flow_group="03 - Derivados Semanales",
         ),
         ETLJobDefinition(
             job_id="fusarium_pipeline",
@@ -193,19 +252,41 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             runner=generate_fusarium_pipeline,
             supports_params=True,
             default_params=dict(default_week_range),
+            depends_on=["load_maestra_fusarium"],
+            dependency_group="Producción",
+            flow_group="03 - Derivados Semanales",
+        ),
+        ETLJobDefinition(
+            job_id="aportes_ponderados_problemas",
+            name="Aportes Ponderados de Problemas",
+            description="Calcula aportes ponderados por problema y exporta un Excel en un rango de fechas.",
+            allows_parallel=True,
+            timeout_seconds=1800,
+            runner=generate_aportes_ponderados_problemas,
+            supports_params=True,
+            default_params=dict(default_week_range),
+            flow_group="04 - Analitica",
         ),
         ETLJobDefinition(
             job_id="productivity_varieties_report",
             name="Reporte de Productividad de Variedades",
-            description="Cruza plane, production_pipeline_curvas y qualities_pipeline para generar el Excel de productividades por variedad en Outputs.",
+            description="Regenera production_pipeline_curvas, qualities_pipeline y fusarium_pipeline por rango de fechas, y luego genera el Excel de productividades por variedad en Outputs.",
             allows_parallel=True,
             timeout_seconds=1800,
             runner=generate_productivity_varieties_report,
+            supports_params=True,
+            default_params=dict(default_week_range),
+            dependency_note="Este job autoprepara production_pipeline_curvas, qualities_pipeline y fusarium_pipeline antes de exportar.",
+            dependency_group="Analítica",
+            flow_group="04 - Analitica",
         ),
         ETLJobDefinition(
             job_id="resumir_curvas_usadas",
             name="Resumir Curvas Usadas",
-            description="Consolida curvas Tika por programa/variedad, calcula pico por ciclo y exporta resumen_curvas a MySQL + CSV.",
+            description=(
+                "Consolida curvas Tika por programa/variedad, calcula pico por ciclo y exporta resumen_curvas a MySQL + CSV. "
+                "Parametro final_filter_value: 0 exporta todo, 1 exporta filtradas y seleccionadas, 2 solo seleccionadas."
+            ),
             allows_parallel=True,
             timeout_seconds=1800,
             runner=generate_resumir_curvas_usadas,
@@ -216,6 +297,7 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
                     "//svrinverpalmas/usuarios/Hilder/Data/tika-curvas2026v2.csv",
                 ],
                 "curve_years": [2025, 2026],
+                "final_filter_value": 2,
             },
         ),
         ETLJobDefinition(
@@ -293,6 +375,14 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             runner=load_maestra_lonas,
         ),
         ETLJobDefinition(
+            job_id="load_maestra_arre",
+            name="Load Maestra ARRE",
+            description="Carga arreYYYY.dbf desde 2020 a 2026, filtra tipo MA y reemplaza la tabla ld_arre.",
+            allows_parallel=False,
+            timeout_seconds=1200,
+            runner=load_maestra_arre,
+        ),
+        ETLJobDefinition(
             job_id="load_maestra_fusarium",
             name="Load Maestra Fusarium",
             description="Carga historico_fusarium.dbf, marca ultimo por grupo y reemplaza la tabla ld_fusarium.",
@@ -325,6 +415,7 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             allows_parallel=True,
             timeout_seconds=1800,
             runner=generate_process_siembras_report,
+            dependency_group="Siembras",
         ),
         ETLJobDefinition(
             job_id="aportes_grados_pipeline",
@@ -335,6 +426,9 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             runner=generate_aportes_grados,
             supports_params=True,
             default_params=dict(default_week_range),
+            depends_on=["producto_procesado_csv"],
+            dependency_group="Analítica",
+            flow_group="03 - Derivados Semanales",
         ),
         ETLJobDefinition(
             job_id="load_siembras_teo_real",
@@ -343,6 +437,7 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             allows_parallel=True,
             timeout_seconds=1800,
             runner=generate_siembras_teo_real,
+            dependency_group="Siembras",
         ),
     ]
     return {job.job_id: job for job in jobs}

@@ -38,14 +38,28 @@
                     <i class="fas fa-table-columns"></i><span>Reporte Dinámico</span>
                 </a>
                 <div class="nav-section-title">ETL</div>
-                <a class="nav-item" href="/etl/jobs" data-path="/etl/jobs">
-                    <i class="fas fa-gears"></i><span>Jobs ETL</span>
-                </a>
+                <div class="nav-dropdown">
+                    <button type="button" class="nav-item nav-dropdown-trigger" data-path="/etl/jobs" aria-expanded="false" aria-controls="etl-submenu">
+                        <i class="fas fa-gears"></i><span>Jobs ETL</span>
+                        <i class="fas fa-chevron-down nav-dropdown-icon"></i>
+                    </button>
+                    <div id="etl-submenu" class="nav-submenu">
+                        <a class="nav-subitem" href="/etl/jobs?group=Todos" data-group="Todos">Todos</a>
+                        <a class="nav-subitem" href="/etl/jobs?group=Siembras" data-group="Siembras">Siembras</a>
+                        <a class="nav-subitem" href="/etl/jobs?group=Producción" data-group="Producción">Producción</a>
+                        <a class="nav-subitem" href="/etl/jobs?group=Planeación" data-group="Planeación">Planeación</a>
+                        <a class="nav-subitem" href="/etl/jobs?group=Analítica" data-group="Analítica">Analítica</a>
+                        <a class="nav-subitem" href="/etl/jobs?group=Otros" data-group="Otros">Otros</a>
+                    </div>
+                </div>
                 <a class="nav-item" href="/load/jobs" data-path="/load/jobs">
                     <i class="fas fa-upload"></i><span>Cargas DBF</span>
                 </a>
                 <a class="nav-item" href="/etl/params" data-path="/etl/params">
                     <i class="fas fa-sliders"></i><span>Parámetros</span>
+                </a>
+                <a class="nav-item" href="/config" data-path="/config">
+                    <i class="fas fa-gear"></i><span>Configuración</span>
                 </a>
                 <a class="nav-item" href="/etl/runs" data-path="/etl/runs">
                     <i class="fas fa-clock-rotate-left"></i><span>Historial</span>
@@ -62,12 +76,6 @@
         <div class="sidebar-overlay" id="sidebar-overlay"></div>
         <!-- Main Content -->
         <div class="main-content">
-            <header class="topbar">
-                <button class="btn btn-link topbar-toggle d-lg-none" id="sidebar-toggle" type="button">
-                    <i class="fas fa-bars"></i>
-                </button>
-                <h1 class="topbar-title">{% block page_title %}Portal de Datos{% endblock %}</h1>
-            </header>
             <main class="page-content">
                 {% if mensaje %}
                 <div class="alert alert-success alert-dismissible fade show" role="alert">

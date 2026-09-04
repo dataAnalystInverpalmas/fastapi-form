@@ -5,8 +5,16 @@ from pathlib import Path
 import pandas as pd
 
 from app.core.settings import settings
+from app.services.etl.helpers import (
+    execute_query,
+    normalize_finca_series,
+    resolve_date_range_params,
+    validate_columns,
+)
+from app.services.etl_jobs.fusarium_pipeline_generator import generate_fusarium_pipeline
+from app.services.etl_jobs.production_pipeline_generator import generate_production_pipeline
+from app.services.etl_jobs.qualities_pipeline_generator import generate_qualities_pipeline
 from app.services.utils.dbf_reader import normalize_path
-from app.services.etl.helpers import execute_query, normalize_finca_series, validate_columns
 
 
 PRODUCTIVITIES_BASE_QUERY = """
@@ -38,6 +46,19 @@ FUSARIUM_COLUMN = "Fusarium"
 CYCLE_COLUMN = "ciclo"
 PEAK_COLUMN = "Pico"
 ALL_FARMS_CODE = "000"
+
+
+def _prepare_upstream_summaries(params: dict | None = None) -> dict[str, str]:
+    """Regenera los insumos del reporte con un rango de fechas consistente."""
+    fecha_inicio, fecha_fin = resolve_date_range_params(params)
+    date_params = {
+        "fecha_inicio": fecha_inicio.strftime("%Y-%m-%d"),
+        "fecha_fin": fecha_fin.strftime("%Y-%m-%d"),
+    }
+    generate_production_pipeline(params=date_params)
+    generate_qualities_pipeline(params=date_params)
+    generate_fusarium_pipeline(params=date_params)
+    return date_params
 
 
 def _normalize_variedad_key(series: pd.Series) -> pd.Series:
@@ -221,7 +242,7 @@ def _build_total_rows(df_base: pd.DataFrame, df_prod: pd.DataFrame, df_qualities
 
 
 def generate_productivity_varieties_report(params: dict | None = None) -> str:
-    del params
+    _prepare_upstream_summaries(params=params)
 
     df_base = _load_productivities_base()
     df_prod = _load_production_summary()

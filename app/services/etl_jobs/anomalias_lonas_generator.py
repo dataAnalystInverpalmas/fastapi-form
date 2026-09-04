@@ -8,7 +8,7 @@ Reglas de detección:
     - tallos > plantas/2 → anomalía potencial (regla_fisica).
     - posible_falta_dato: si el promedio de flor_planta de los 7 días previos
         (considerando solo días con tallos > 0) es > 0.1, el día no es domingo,
-        no es festivo y el valor de tallos del día es nulo o <= 0.
+        no es festivo y el valor de tallos del día está vacío.
     - fecha sin registro y sin condición histórica → sin_dato.
 
 Parámetros:
@@ -135,13 +135,13 @@ def _analyze_group(
     merged.loc[anomalos, "motivo"] = "regla_fisica"
 
     # Posible falta de dato: historial alto en 7 días previos,
-    # día no domingo, no festivo y tallos nulo o <= 0.
+    # día no domingo, no festivo y tallos nulo.
     dia_no_domingo = merged["fecha_registro"].dt.weekday != 6
     es_festivo = merged["fecha_registro"].isin(festivos)
     merged["es_festivo"] = es_festivo
     historial_alto = merged["promedio_flor_planta_7d_prev"] >= 0.1
-    tallos_bajos_o_nulos = merged["tallos"].isna() | (merged["tallos"] <= 0)
-    posible_falta = dia_no_domingo & ~es_festivo & historial_alto & tallos_bajos_o_nulos
+    tallos_nulos = merged["tallos"].isna()
+    posible_falta = dia_no_domingo & ~es_festivo & historial_alto & tallos_nulos
     merged.loc[posible_falta, "es_anomalo"] = True
     merged.loc[posible_falta, "motivo"] = "posible_falta_dato"
 

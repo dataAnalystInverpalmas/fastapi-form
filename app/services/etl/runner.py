@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 import inspect
 from typing import Any
 
@@ -21,8 +22,11 @@ def _executor_instance() -> ThreadPoolExecutor:
 
 def bootstrap_jobs() -> None:
     etl_repository.ensure_etl_tables()
-    for job in list_jobs():
+    jobs = list_jobs()
+    for job in jobs:
         etl_repository.upsert_job_definition(job)
+    for job in jobs:
+        etl_repository.fail_stale_runs(job_id=job.job_id, timeout_seconds=job.timeout_seconds)
 
 
 def _invoke_runner(job_runner, params: dict[str, Any] | None) -> str:
@@ -40,11 +44,23 @@ def _run_job(run_id: int, job_id: str, params: dict[str, Any] | None = None) -> 
         return
 
     etl_repository.update_run_started(run_id)
+    runner_executor = ThreadPoolExecutor(max_workers=1)
+    runner_future = runner_executor.submit(_invoke_runner, job.runner, params)
+
     try:
-        output_path = _invoke_runner(job.runner, params=params)
+        timeout_seconds = max(int(job.timeout_seconds or 0), 1)
+        output_path = runner_future.result(timeout=timeout_seconds)
         etl_repository.update_run_success(run_id, output_path=output_path)
+    except FuturesTimeoutError:
+        runner_future.cancel()
+        etl_repository.update_run_failed(
+            run_id,
+            f"Job '{job_id}' excedio el timeout de {job.timeout_seconds} segundos.",
+        )
     except Exception as exc:  # noqa: BLE001
         etl_repository.update_run_failed(run_id, str(exc))
+    finally:
+        runner_executor.shutdown(wait=False, cancel_futures=True)
 
 
 def start_job(
@@ -55,6 +71,8 @@ def start_job(
     job = get_job(job_id)
     if job is None:
         raise ValueError(f"No existe el job '{job_id}'.")
+
+    etl_repository.fail_stale_runs(job_id=job_id, timeout_seconds=job.timeout_seconds)
 
     if not job.allows_parallel and etl_repository.count_running_jobs(job_id) > 0:
         raise RuntimeError(f"El job '{job_id}' ya tiene una corrida en progreso.")

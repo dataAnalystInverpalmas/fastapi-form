@@ -1,0 +1,66 @@
+version: "3.9"
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: fastapi-form-db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_NAME:-informes}
+      MYSQL_USER: ${DB_USER:-appuser}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-apppass}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpass}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  fastapi-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fastapi-form
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      APP_ENV: docker
+      SMB_SERVER: ${SMB_SERVER:-172.10.18.2}
+      SMB_SHARE: ${SMB_SHARE:-produc}
+      SMB_MOUNT_ROOT: ${SMB_MOUNT_ROOT:-/mnt/smb}
+      SMB_MOUNT_PATH: ${SMB_MOUNT_PATH:-/mnt/smb/produc}
+      SMB_USERNAME: ${SMB_USERNAME:-}
+      SMB_PASSWORD: ${SMB_PASSWORD:-}
+      SMB_DOMAIN: ${SMB_DOMAIN:-}
+      SMB_OPTIONS: ${SMB_OPTIONS:-username=,uid=1000,gid=1000,vers=3.0,iocharset=utf8,sec=ntlm}
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: ${DB_USER:-appuser}
+      DB_PASSWORD: ${DB_PASSWORD:-apppass}
+      DB_NAME: ${DB_NAME:-informes}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./logs:/app/logs
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - seccomp:unconfined
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+volumes:
+  mysql_data:

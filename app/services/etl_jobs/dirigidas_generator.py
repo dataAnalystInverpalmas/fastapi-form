@@ -515,20 +515,36 @@ def _build_dirigida_pc_output(
         df_filtrado.groupby(["finca", "flor", "nvari"], as_index=False)["tallos"]
         .sum()
     )
-    df_v = df_v[df_v["tallos"] > tallos_min].copy()
+    # Garantizar base de 1 muestra por variedad presente por finca/flor.
+    # El filtro por tallos_min ya se aplica en df_filtrado antes de llegar aquí.
+    df_v = df_v[df_v["tallos"] > 0].copy()
     if df_v.empty:
         return pd.DataFrame(columns=["finca", "flor", "nvari", "tallos", "aporte_tallos", "muestra"])
 
-    total_tallos = df_v.groupby(["finca", "flor"]) ["tallos"].transform("sum")
+    total_tallos = df_v.groupby(["finca", "flor"])["tallos"].transform("sum")
     df_v["aporte_tallos"] = np.where(total_tallos > 0, df_v["tallos"] / total_tallos, 0)
 
     df_sorted = df_v.sort_values(by=["finca", "flor", "aporte_tallos"], ascending=[True, True, False]).reset_index(drop=True)
     df_sorted["muestra"] = 1
 
-    # Completar hasta lonas_semana por finca/flor repartiendo incremento sobre filas de mayor aporte.
+    # Completar hasta lonas_semana por finca/flor.
+    # Regla: primero asegurar base de 1 muestra por variedad (si cabe en el cupo),
+    # luego repartir incrementos por aporte dando prioridad a variedades definidas.
     chunks = []
     for _, group in df_sorted.groupby(["finca", "flor"], as_index=False):
-        group = group.sort_values("tallos", ascending=False).reset_index(drop=True)
+        group = group.sort_values(["aporte_tallos", "tallos", "nvari"], ascending=[False, False, True]).reset_index(drop=True)
+
+        if group.empty or lonas_semana <= 0:
+            continue
+
+        # Si hay más variedades que cupo semanal, no es posible asignar 1 muestra a todas.
+        # En ese caso conservar primero variedades prioritarias y luego mayor aporte.
+        if len(group) > lonas_semana:
+            priority_mask = group["nvari"].map(_normalize_variety_key).isin(DIRIGIDA_PC_PRIORITY_VARIETIES)
+            priority_df = group[priority_mask].copy()
+            non_priority_df = group[~priority_mask].copy()
+            group = pd.concat([priority_df, non_priority_df], ignore_index=True).head(int(lonas_semana)).copy()
+            group = group.sort_values(["aporte_tallos", "tallos", "nvari"], ascending=[False, False, True]).reset_index(drop=True)
 
         # Priorizar +1 muestra para variedades definidas, sin exceder el cupo semanal.
         special_mask = group["nvari"].map(_normalize_variety_key).isin(DIRIGIDA_PC_PRIORITY_VARIETIES)
@@ -604,6 +620,16 @@ def generate_dirigidas_analyzer(params: dict[str, Any] | None = None) -> str:
         & (pd.to_numeric(df_proye["edad"], errors="coerce") > 0)
     ].copy()
 
+    # Para dirigida PC (finca/flor) no aplica filtro de edad.
+    # Se usa ventana semanal y tallos >= 0.
+    df_pc_filtrado = df_proy[
+        (df_proy["flor"].isin(["CLA", "CM0"]))
+        & (df_proy["tipo"] == "Proy_Aj")
+        & (df_proy["fecha"] > fecha_inicio_lunes)
+        & (df_proy["fecha"] <= fecha_final)
+        & (pd.to_numeric(df_proy["tallos"], errors="coerce") >= 0)
+    ].copy()
+
     # Preparación de plano/dates como en notebook.
     df_plane = (
         df_plane.groupby(["finca", "bloque", "nvari", "cosecha", "ferradica"], as_index=False)
@@ -641,7 +667,7 @@ def generate_dirigidas_analyzer(params: dict[str, Any] | None = None) -> str:
 
     # Método 2: salida PC por finca-variedad.
     df_pc = _build_dirigida_pc_output(
-        df_filtrado=df_filtrado,
+        df_filtrado=df_pc_filtrado,
         tallos_min=tallos_min,
         lonas_semana=lonas_semana,
     )

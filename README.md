@@ -12,7 +12,7 @@ Aplicacion web fullstack para gestion y analisis de datos de produccion agricola
 
 | Capa | Tecnologia |
 |------|------------|
-| Backend | FastAPI 0.104, Python 3.10+, APScheduler |
+| Backend | FastAPI 0.104, Python 3.11, APScheduler 3.11 |
 | Base de datos | MySQL / MariaDB con connection pool |
 | Datos | Pandas, NumPy, SciPy, scikit-learn, dbfread |
 | Frontend | Vue 3 (Composition API), Vite, Tailwind CSS, Axios |
@@ -23,8 +23,8 @@ Aplicacion web fullstack para gestion y analisis de datos de produccion agricola
 
 ## Requisitos previos
 
-- Python 3.10+
-- Node.js 20+
+- Python 3.11 (Docker usa `python:3.11-slim`)
+- Node.js 20.19+ o 22.12+
 - MySQL / MariaDB 5.7+
 - Acceso de red a `\\svrinverpalmas\...` (rutas UNC del servidor)
 
@@ -104,7 +104,7 @@ uvicorn main:app --reload
 ```bash
 cd frontend
 npm run dev
-# http://localhost:5173  (proxy a :8000 configurado en vite.config.js)
+# http://localhost:5173 (proxy de /api hacia :8000)
 ```
 
 ### Modo produccion
@@ -114,8 +114,10 @@ npm run dev
 cd frontend && npm run build && cd ..
 
 # Iniciar backend (sirve el SPA desde /assets y catch-all)
-uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
 ```
+
+En Docker, `docker compose up --build` construye el frontend, inicia MySQL y levanta FastAPI en `http://localhost:8000`. El frontend compilado se sirve bajo `/app/`; las rutas legacy Jinja2 siguen disponibles en sus endpoints actuales.
 
 ---
 
@@ -156,21 +158,9 @@ fastapi-form/
 │   │   ├── api.py                 # Endpoints REST /api/*
 │   │   └── web.py                 # Rutas Jinja2 (interfaz legacy)
 │   └── services/
-│       ├── curve_functions.py     # Funciones de curva de produccion
-│       ├── etl_catalog.py         # Construccion del catalogo de jobs
-│       ├── etl_constants.py       # Constantes compartidas entre rutas
-│       ├── etl_definition.py      # Dataclass ETLJobDefinition
-│       ├── etl_helpers.py         # Utilidades compartidas (read_dbf, etc.)
-│       ├── etl_params.py          # Validacion/coercion de parametros ETL
-│       ├── etl_registry.py        # Registro lazy de jobs
-│       ├── etl_repository.py      # Acceso a MySQL (runs, jobs, params)
-│       ├── etl_runner.py          # ThreadPoolExecutor + start_job()
-│       ├── pivot_service.py       # Reporte dinamico con whitelist SQL
-│       ├── date_service.py        # Utilidades de fechas (zona Bogota)
-│       ├── dbf_reader.py          # Lectura de DBF con multiples encodings
-│       ├── query_processes.py     # Consultas parametrizadas
-│       ├── aportes_ponderados_query.py
-│       ├── cortes_lonas_query.py
+│       ├── etl/                   # Catalogo, registro, parametros, runner y repositorio
+│       ├── queries/               # Consultas y reporte dinamico
+│       ├── utils/                 # DBF, curvas, fechas y utilidades compartidas
 │       ├── dbf_loaders/           # Cargadores individuales de DBF a MySQL
 │       │   ├── load_causas_generator.py
 │       │   ├── load_colores_generator.py
@@ -256,6 +246,7 @@ fastapi-form/
 | `load_tabla_nacional` | Datos nacionales `rflo*.dbf` |
 | `load_plano_cultivo_fm` | Plano de cultivo fm |
 | `load_maestra_fusarium` | Historico de fusarium |
+| `load_maestra_arre` | Historico de arreglos desde `arre*.dbf` |
 
 > Los jobs `load_maestra_lonas`, `load_tabla_descarta_curva`, `load_tabla_metas` y `load_tabla_nacional` se ejecutan automaticamente cada dia a las 10:00 AM (hora Bogota).
 
@@ -263,22 +254,24 @@ fastapi-form/
 
 | Job ID | Descripcion |
 |--------|-------------|
-| `excel_labores` | Genera `labores_de_siembra.xlsx` |
+| `excel_labores` | Genera el Excel exportado del reporte de labores |
 | `bajas_exportado` | `bajas_por_mes.csv` y `bajas_desde_2010.csv` |
+| `producto_procesado_historico_csv` | Carga historica de producto procesado 2021-2025 |
 | `producto_procesado_csv` | `pprocesado.csv` desde `pprocesado*.dbf` |
 | `proyecciones_csv` | `proyecciones.csv` combinando DBFs + presupuesto |
 | `produccion_picos` | Reporte de produccion por picos |
-| `production_pipeline` | Pipeline completo de produccion con curvas suavizadas por ciclo y finca |
+| `production_pipeline_curvas` | Pipeline completo de produccion con curvas suavizadas por ciclo y finca |
 | `fusarium_pipeline` | Pipeline de analisis de fusarium |
 | `qualities_pipeline` | Pipeline de calidades de produccion |
 | `productivity_varieties_report` | Reporte de productividad por variedades con `pico` y `ciclo` |
 | `quipus_vs_proy` | Quipus vs proyecciones |
-| `compare_tika_produccion` | Comparativa Tika / produccion / despachos |
+| `compare_tika_produccion_despachos` | Comparativa Tika / produccion / despachos |
 | `comparar_picos_demanda` | Picos de produccion vs demanda |
-| `dirigidas` | Analisis de dirigidas |
+| `dirigidas_analyzer` | Analisis de dirigidas |
 | `anomalias_lonas` | Deteccion de anomalias en lonas |
 | `pedidos_surtidos` | Procesos de pedidos surtidos |
 | `aportes_grados` | Aportes por grados |
+| `aportes_ponderados_problemas` | Aportes ponderados por problema |
 | `resumir_curvas_usadas` | Resumen de curvas de produccion usadas |
 | `tabla_curvas_clavel` | Tabla de curvas por variedad de clavel |
 
@@ -289,11 +282,11 @@ fastapi-form/
 El sistema ETL sigue un patron registry/catalog/runner claramente separado:
 
 ```
-etl_catalog.py      -> define la lista de ETLJobDefinition
-etl_registry.py     -> expone get_job() / list_jobs() con carga lazy
-etl_runner.py       -> ejecuta jobs en ThreadPoolExecutor
-etl_repository.py   -> persiste estado en MySQL (etl_jobs, etl_job_runs)
-etl_params.py       -> valida y coerciona parametros tipados
+app/services/etl/catalog.py      -> define la lista de ETLJobDefinition
+app/services/etl/registry.py     -> expone get_job() / list_jobs() con carga lazy
+app/services/etl/runner.py       -> ejecuta jobs en ThreadPoolExecutor
+app/services/etl/repository.py   -> persiste estado en MySQL (etl_jobs, etl_job_runs)
+app/services/etl/params.py       -> valida y coerciona parametros tipados
 ```
 
 Los jobs con `supports_params=True` aceptan parametros configurables desde la UI en `/etl/params`. Los ultimos parametros usados se persisten automaticamente.
@@ -321,6 +314,12 @@ Ver [AGENTS.md](AGENTS.md) para las reglas especificas del repositorio, en parti
 **CORS:** solo permite `http://localhost:5173` (dev server de Vite). En produccion el frontend se sirve como SPA desde FastAPI.
 
 ---
+
+## Documentacion adicional
+
+- [Frontend](frontend/README.md): desarrollo, build y despliegue de Vue/Vite.
+- [Revision tecnica](REVIEW.md): estado actual, riesgos pendientes y validaciones.
+- [Convenciones del repositorio](AGENTS.md): reglas de negocio para pipelines y reportes.
 
 ## Licencia
 

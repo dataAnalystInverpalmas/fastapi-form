@@ -1,19 +1,45 @@
 ﻿from __future__ import annotations
 
+import json
 from typing import Any
 
 from app.services.etl.repository import get_last_job_params
 from app.services.etl.registry import get_job
 
 
+def _split_list_string(value: str) -> list[str]:
+    text = str(value).strip()
+    if not text:
+        return []
+
+    if text.startswith("[") and text.endswith("]"):
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, list):
+            return [str(item).strip() for item in parsed if str(item).strip()]
+
+    if "\n" in text or "\r" in text:
+        normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+        return [item.strip() for item in normalized.split("\n") if item.strip()]
+
+    separator = ";" if ";" in text else ","
+    return [item.strip() for item in text.split(separator) if item.strip()]
+
+
 def _parse_list(value: Any, sample_item: Any) -> list[Any]:
     if isinstance(value, list):
-        items = value
+        items: list[Any] = []
+        for item in value:
+            if isinstance(item, str):
+                items.extend(_split_list_string(item))
+            else:
+                items.append(item)
     elif isinstance(value, str):
-        tokens = [item.strip() for item in value.replace(";", ",").split(",")]
-        items = [token for token in tokens if token]
+        items = _split_list_string(value)
     else:
-        raise ValueError("Debe ser una lista o texto separado por comas.")
+        raise ValueError("Debe ser una lista o texto separado por comas, punto y coma o saltos de línea.")
 
     if isinstance(sample_item, int):
         parsed: list[int] = []

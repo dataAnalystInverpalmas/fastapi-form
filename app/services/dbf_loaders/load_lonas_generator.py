@@ -16,6 +16,8 @@ def load_maestra_lonas() -> str:
         {"fecha", "fsiemb", "finca", "bloque", "cosecha", "flor", "variedad", "lonas", "tmatab"},
         "lonasYYYY.dbf",
     )
+    # Conservar solo las columnas necesarias para evitar sobrecarga en merge y carga SQL.
+    df_lonas = df_lonas[["fecha", "fsiemb", "finca", "bloque", "cosecha", "flor", "variedad", "lonas", "tmatab"]].copy()
     df_lonas["fecha"] = pd.to_datetime(df_lonas["fecha"], errors="coerce")
     df_lonas["fsiemb"] = pd.to_datetime(df_lonas["fsiemb"], errors="coerce")
     df_lonas = df_lonas[df_lonas["fecha"].notna()].copy()

@@ -25,6 +25,7 @@
 
   // ── Active Nav Link ───────────────────────────────────────────────────────
   var currentPath = window.location.pathname;
+  var currentGroup = new URLSearchParams(window.location.search).get('group') || 'Todos';
   document.querySelectorAll('.sidebar-nav .nav-item').forEach(function (link) {
     var path = link.getAttribute('data-path');
     if (path && currentPath === path) {
@@ -32,6 +33,39 @@
     } else if (path && path !== '/dashboard' && currentPath.startsWith(path)) {
       link.classList.add('active');
     }
+  });
+
+  document.querySelectorAll('.sidebar-nav .nav-subitem').forEach(function (link) {
+    var group = link.getAttribute('data-group') || 'Todos';
+    if (currentPath === '/etl/jobs' && group === currentGroup) {
+      link.classList.add('active');
+      var parentDropdown = link.closest('.nav-dropdown');
+      if (parentDropdown) {
+        parentDropdown.classList.add('open');
+      }
+    }
+  });
+
+  document.querySelectorAll('.nav-dropdown-trigger').forEach(function (trigger) {
+    trigger.addEventListener('click', function (event) {
+      event.preventDefault();
+      const parent = trigger.closest('.nav-dropdown');
+      if (!parent) return;
+      const submenu = parent.querySelector('.nav-submenu');
+      if (!submenu) return;
+
+      const isOpen = parent.classList.contains('open');
+      document.querySelectorAll('.nav-dropdown').forEach(function (dropdown) {
+        dropdown.classList.remove('open');
+        const btn = dropdown.querySelector('.nav-dropdown-trigger');
+        if (btn) btn.setAttribute('aria-expanded', 'false');
+      });
+
+      if (!isOpen) {
+        parent.classList.add('open');
+        trigger.setAttribute('aria-expanded', 'true');
+      }
+    });
   });
 
   // ── Toast Utility (global) ────────────────────────────────────────────────

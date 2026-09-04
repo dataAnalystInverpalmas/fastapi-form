@@ -21,7 +21,7 @@ def generate_process_siembras_report() -> str:
         END AS ciclos
     FROM plane AS p
     LEFT JOIN dates AS d ON d.fecha = p.fecha_siembra
-    WHERE p.plantas > 1
+    WHERE p.plantas > 1 AND p.producto IN('CLAVEL','MINICLAVEL')
     """
 
     results = pd.DataFrame(execute_query(select_query) or [], columns=[

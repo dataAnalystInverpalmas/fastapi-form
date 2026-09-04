@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.services.dbf_loaders.load_arre_generator import load_maestra_arre
 from app.services.dbf_loaders.load_causas_generator import load_maestra_causas
 from app.services.dbf_loaders.load_colores_generator import load_maestra_colores
 from app.services.dbf_loaders.load_cosechas_generator import load_maestra_cosechas
@@ -21,5 +22,6 @@ __all__ = [
     "load_tabla_descarta_curva",
     "load_tabla_nacional",
     "load_maestra_lonas",
+    "load_maestra_arre",
     "load_plano_cultivo_fm",
 ]

@@ -136,18 +136,19 @@ def build_output_dataframe(
 def write_excel(
     df_out: pd.DataFrame,
     output_dir: str | None = None,
-    filename: str = "labores_de_siembra.xlsx",
+    filename: str | None = None,
 ) -> str:
     final_output_dir = output_dir or settings.EXCEL_OUTPUT_DIR
+    final_filename = filename or settings.EXCEL_FILENAME
     os.makedirs(final_output_dir, exist_ok=True)
-    output_path = os.path.join(final_output_dir, filename)
+    output_path = os.path.join(final_output_dir, final_filename)
     df_out.to_excel(output_path, index=False)
     return output_path
 
 
 def generate_excel_file(
     output_dir: str | None = None,
-    filename: str = "labores_de_siembra.xlsx",
+    filename: str | None = None,
 ) -> str:
     resultados, resultados1, resultados2 = fetch_results()
     df_out = build_output_dataframe(resultados, resultados1, resultados2)

@@ -6,8 +6,10 @@ o exporta las variables antes de ejecutar la aplicación.
 """
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
+from typing import Any, get_args, get_origin
 
 from pydantic_settings import BaseSettings
 
@@ -19,9 +21,21 @@ class Settings(BaseSettings):
     APP_NAME: str = "Portal de Datos Inverpalmas"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
-    
+    APP_ENV: str = "local"
+
     # Ruta por defecto del archivo DBF
     DEFAULT_DBF_PATH: str = r"\\svrinverpalmas\produc\LD_BCULT\hijos2026.dbf"
+
+    # Montaje SMB/CIFS para contenedores
+    SMB_SERVER: str = "172.10.18.2"
+    SMB_SHARE: str = "produc"
+    SMB_MOUNT_ROOT: str = "/mnt/smb"
+    SMB_MOUNT_PATH: str = "/mnt/smb/produc"
+    SMB_USERNAME: str = ""
+    SMB_PASSWORD: str = ""
+    SMB_DOMAIN: str = ""
+    SMB_OPTIONS: str = "username=,uid=1000,gid=1000,vers=3.0,iocharset=utf8,sec=ntlm"
+    SMB_MOUNT_RETRY_SECONDS: int = 10
     
     # Límites y paginación
     DEFAULT_LIMIT: int = 100
@@ -39,12 +53,16 @@ class Settings(BaseSettings):
 
     # Salida del Excel
     EXCEL_OUTPUT_DIR: str = r"\\svrinverpalmas\Usuarios\Outputs"
-    EXCEL_FILENAME: str = "labores_de_siembra.xlsx"
+    EXCEL_FILENAME: str = "consultor_archivos_dbf.xlsx"
 
     # ETL producto procesado
+    PPROCESADO_2021_PATH: str = r"\\svrinverpalmas\produc\basetdinamica\pprocesado_2021.dbf"
+    PPROCESADO_2022_PATH: str = r"\\svrinverpalmas\produc\basetdinamica\pprocesado_2022.dbf"
+    PPROCESADO_2023_PATH: str = r"\\svrinverpalmas\produc\basetdinamica\pprocesado_2023.dbf"
     PPROCESADO_2024_PATH: str = r"\\svrinverpalmas\produc\basetdinamica\pprocesado_2024.dbf"
     PPROCESADO_2025_PATH: str = r"\\svrinverpalmas\produc\basetdinamica\pprocesado_2025.dbf"
     PPROCESADO_CURRENT_PATH: str = r"\\svrinverpalmas\produc\basetdinamica\pprocesado.dbf"
+    PPROCESADO_INCREMENTAL_START_DATE: str = "2025-12-29"
     PPROCESADO_OUTPUT_PATH: str = r"\\svrinverpalmas\produc\basetdinamica\pprocesado.csv"
     PPROCESADO_FLOR_FILTER: list[str] = ["CLA", "CM0", "ROS", "ROC"]
     PPROCESADO_FUENTE_FILTER: list[str] = [
@@ -67,9 +85,10 @@ class Settings(BaseSettings):
     PROYECCIONES_OUTPUT_PATH: str = r"\\svrinverpalmas\produc\basetdinamica\proyecciones.csv"
     PROYECCIONES_BUDGET_START_DATE: str = "2024-01-01"
     PROYECCIONES_FLOR_FILTER: list[str] = ["CLA", "CM0", "ROC", "ROS"]
+    PROYECTAR_ROSAS_OUTPUT_PATH: str = r"C:\Users\ESTADISTICA\Documents\fastapi-form\output\proyeccion_rosas.csv"
 
     # Cargas DBF directas (menu separado)
-    LOAD_LD_BCULT_DIR: str = r"\\svrinverpalmas\produc\ld_bcult"
+    LOAD_LD_BCULT_DIR: str = r"\\172.10.18.2\produc\ld_bcult"
     LOAD_MGCOL_PATH: str = r"\\svrinverpalmas\produc\ld_bcult\ld_mgcol.dbf"
     LOAD_MFIES_PATH: str = r"\\svrinverpalmas\produc\ld_bcult\ld_mfies.dbf"
     LOAD_MCOSE_PATH: str = r"\\svrinverpalmas\produc\ld_bcult\ld_mcose.dbf"
@@ -79,7 +98,7 @@ class Settings(BaseSettings):
     LOAD_DESCARTA_CURVA_PATH: str = r"\\svrinverpalmas\produc\ld_bcult\descarta_curva.dbf"
     LOAD_RFLO_NACIONAL_PATH: str = r"\\svrinverpalmas\produc\ld_bcult\rflo2026.dbf"
     LOAD_RFLO_NACIONAL_TABLES: list[str] = ["rflo2026"]
-    LOAD_LONAS_FILES: list[str] = ["lonas2026.dbf", "lonas2025.dbf", "lonas2024.dbf"]
+    LOAD_LONAS_FILES: list[str] = ["lonas2026.dbf", "lonas2025.dbf", "lonas2024.dbf", "lonas2023.dbf", "lonas2022.dbf", "lonas2021.dbf"]
     LOAD_FUSARIUM_PATH: str = r"\\svrinverpalmas\produc\basetdinamica\historico_fusarium.dbf"
     LOAD_PLANO_SIEMBRA_RESUMIDO_PATH: str = r"\\svrinverpalmas\produc\basetdinamica\plano_de_siembra_resumido.dbf"
     LOAD_VARIEDADES_FLOR_FILTER: list[str] = ["CLA", "CM0", "VCL", "VCM", "ROC", "ROS"]
@@ -94,7 +113,7 @@ class Settings(BaseSettings):
     # ETL nuevos scripts de load/
     PROCESS_GUARDE_INPUT_PATH: str = r"\\172.10.18.2\produc\BASETDINAMICA\TIKA_SALDOS_CTO.csv"
     PROCESS_GUARDE_OUTPUT_PATH: str = r"\\172.10.18.2\Usuarios\Outputs\guarde_procesado.xlsx"
-    PROCESS_SIEMBRAS_OUTPUT_PATH: str = r"\\svrinverpalmas\usuarios\produccion\Sofia\tika\plano nuevo siembra.xlsx"
+    PROCESS_SIEMBRAS_OUTPUT_PATH: str = r"\\svrinverpalmas\usuarios\propagacion\lorena\tika\plano nuevo siembra.xlsx"
     SIEMBRAS_TEO_REAL_OUTPUT_PATH: str = r"\\172.10.18.2\Usuarios\Outputs\siembras teo vs real.xlsx"
 
     # ETL quipus vs proyecciones
@@ -112,7 +131,7 @@ class Settings(BaseSettings):
     # ETL comparar por picos vs demanda
     PICOS_TIKA_MODELO: int = 485
     PICOS_TALLOS_FACTOR: float = 0.9
-    PICOS_DEMANDA_PATH: str = r"\\svrinverpalmas\Usuarios\Hilder\Data\demanda_jun24-2526_abr24-2653_sep25-2752_v5.csv"
+    PICOS_DEMANDA_PATH: str = r"\\svrinverpalmas\Usuarios\Hilder\Data\demanda_27-28v2.csv"
     PICOS_OUTPUT_PATH: str = r"\\svrinverpalmas\produc\BASETDINAMICA\compara_pto_proy_real.csv"
     PICOS_OUTPUT_DIFERENCIAS_PATH: str = r"\\172.10.18.2\Usuarios\Outputs\flor_color_diferencias.csv"
     PICOS_SEMANA_INICIO: int = 2527
@@ -139,7 +158,7 @@ class Settings(BaseSettings):
     COMPARE_TIKA_D_CUTOFF_DATE: str = "2026-01-05"
     COMPARE_TIKA_DESPACHOS_PATH: str = r"\\172.10.18.2\Usuarios\Outputs\ventas ultimo año.xlsx"
     COMPARE_TIKA_QUIPUS_EXCEL_PATH: str = r"C:\Users\ESTADISTICA\Qsync\POSCOSECHA MERCADEO\Datos Quipus\datos.xlsx"
-    COMPARE_TIKA_DEMANDA_PATH: str = r"\\svrinverpalmas\Usuarios\Hilder\Data\demanda_jun24-2526_abr24-2653_sep25-2752_v5.csv"
+    COMPARE_TIKA_DEMANDA_PATH: str = r"\\svrinverpalmas\Usuarios\Hilder\Data\demanda_27-28v3.csv"
     COMPARE_TIKA_OUTPUT_PATH: str = r"\\svrinverpalmas\Usuarios\Hilder\Data\comparar producción.csv"
     COMPARE_TIKA_OUTPUT_EXCEL_PATH: str = r"\\172.10.18.2\Usuarios\Outputs\comparar producción.xlsx"
 
@@ -176,6 +195,143 @@ class Settings(BaseSettings):
         env_file_encoding = "utf-8"
         case_sensitive = True
 
+    def _coerce_scalar(self, value: Any, annotation: Any) -> Any:
+        if annotation in {Any, object}:
+            return value
+
+        if annotation is bool:
+            if isinstance(value, str):
+                return value.strip().lower() in {"1", "true", "yes", "y", "si", "sí"}
+            return bool(value)
+
+        if annotation in {int, float}:
+            if isinstance(value, str):
+                token = value.strip()
+                if token == "":
+                    return 0 if annotation is int else 0.0
+                return int(token) if annotation is int else float(token)
+            return annotation(value)
+
+        if annotation is str:
+            return str(value)
+
+        origin = get_origin(annotation)
+        if origin in {list, tuple, set}:
+            sequence = value if isinstance(value, (list, tuple, set)) else [value]
+            item_type = get_args(annotation)[0] if get_args(annotation) else str
+            return [self._coerce_scalar(item, item_type) for item in sequence]
+
+        if annotation is dict or origin is dict:
+            if isinstance(value, dict):
+                return value
+            return value
+
+        return value
+
+    def _coerce_value(self, key: str, value: Any) -> Any:
+        field = self.model_fields.get(key)
+        if field is None:
+            return value
+
+        annotation = field.annotation
+        origin = get_origin(annotation)
+        args = get_args(annotation)
+
+        if isinstance(value, str):
+            token = value.strip()
+            if token == "":
+                return ""
+
+            if annotation is bool:
+                return self._coerce_scalar(value, annotation)
+
+            if annotation in {int, float}:
+                return self._coerce_scalar(value, annotation)
+
+            if origin in {list, tuple, set}:
+                parsed: Any = token
+                if token.startswith("["):
+                    try:
+                        parsed = json.loads(token)
+                    except json.JSONDecodeError:
+                        parsed = token
+                elif any(sep in token for sep in (";", ",")):
+                    parsed = [part.strip() for part in token.replace(";", ",").split(",") if part.strip()]
+
+                if isinstance(parsed, (list, tuple, set)):
+                    item_type = args[0] if args else str
+                    return [self._coerce_scalar(item, item_type) for item in parsed]
+                if isinstance(parsed, str):
+                    item_type = args[0] if args else str
+                    if item_type is str:
+                        return [parsed]
+                    return [self._coerce_scalar(parsed, item_type)]
+                return parsed
+
+            if annotation is dict or origin is dict:
+                if token.startswith("{"):
+                    try:
+                        return json.loads(token)
+                    except json.JSONDecodeError:
+                        return value
+                return value
+
+        if annotation is bool:
+            return self._coerce_scalar(value, annotation)
+
+        if annotation in {int, float}:
+            return self._coerce_scalar(value, annotation)
+
+        if origin in {list, tuple, set}:
+            sequence = value if isinstance(value, (list, tuple, set)) else [value]
+            item_type = args[0] if args else str
+            return [self._coerce_scalar(item, item_type) for item in sequence]
+
+        if annotation is dict or origin is dict:
+            if isinstance(value, dict):
+                return value
+            return value
+
+        return value
+
+    def apply_overrides(self, overrides: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(overrides, dict):
+            raise ValueError("Las sobreescrituras deben ser un diccionario.")
+
+        applied: dict[str, Any] = {}
+        for key, value in overrides.items():
+            if key not in type(self).model_fields:
+                raise ValueError(f"No existe la configuración '{key}' en la aplicación.")
+            coerced = self._coerce_value(key, value)
+            setattr(self, key, coerced)
+            applied[key] = coerced
+        return applied
+
+    def reset_to_defaults(self) -> dict[str, Any]:
+        restored: dict[str, Any] = {}
+        for key, field in type(self).model_fields.items():
+            default_value = field.default
+            if default_value is not None:
+                setattr(self, key, default_value)
+                restored[key] = default_value
+            else:
+                setattr(self, key, None)
+                restored[key] = None
+        return restored
+
+
+def _load_persistent_overrides() -> dict[str, Any]:
+    path = Path(__file__).resolve().parents[2] / ".app_config_overrides.json"
+    if not path.exists():
+        return {}
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (json.JSONDecodeError, OSError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
 
 # Instancia global de configuración
 settings = Settings()
+settings.apply_overrides(_load_persistent_overrides())

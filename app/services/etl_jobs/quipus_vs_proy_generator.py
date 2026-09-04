@@ -186,10 +186,37 @@ def _load_plano_data(semana_actual: int) -> tuple[pd.DataFrame, pd.DataFrame, pd
     df_plano = df_plano[df_plano["bloque"].str.lower() != "confinados"].copy()
     df_plano = _normalize_merge_keys(df_plano, text_cols=["finca", "variedad", "flor"])
 
-    arrancada_calc_col = _extract_first_existing(df_plano, ["s_arranque_calculada", "arranque_calculada"])
-    arrancada_real_col = _extract_first_existing(df_plano, ["s_arranque_real", "arranque_real"])
-    pico_col = _extract_first_existing(df_plano, ["fiesta_pico", "pico"])
-    esquejes_col = _extract_first_existing(df_plano, ["esquejes_sembrados"])
+    arrancada_calc_col = _extract_first_existing(
+        df_plano,
+        [
+            "s_arranque_calculada",
+            "arranque_calculada",
+            "s_arranque_programada",
+            "arranque_programada",
+            "s. arranque programada",
+            "s_ arranque programada",
+        ],
+    )
+    arrancada_real_col = _extract_first_existing(
+        df_plano,
+        [
+            "s_arranque_real",
+            "arranque_real",
+            "s. arranque real",
+            "s_arranque_rea_l",
+        ],
+    )
+    pico_col = _extract_first_existing(
+        df_plano,
+        [
+            "fiesta_pico",
+            "pico",
+            "fiesta_pico",
+            "fiesta (pico)",
+            "semana_primer_pico",
+        ],
+    )
+    esquejes_col = _extract_first_existing(df_plano, ["esquejes_sembrados", "esquejes_sembrados_", "esquejes sembrados"])
 
     df_plano["semana"] = pd.to_numeric(df_plano["semana"], errors="coerce")
 
@@ -288,6 +315,9 @@ def _load_quipus_data(semana_actual: int) -> pd.DataFrame:
 
     if "semana_de_siembra" in df_quipus.columns:
         df_quipus = df_quipus.rename(columns={"semana_de_siembra": "semana"})
+    if "cantidad" not in df_quipus.columns and "produccion_tika" in df_quipus.columns:
+        # CSV reciente: "Producción tika" -> normalizado a "produccion_tika".
+        df_quipus = df_quipus.rename(columns={"produccion_tika": "cantidad"})
 
     required = {
         "finca",

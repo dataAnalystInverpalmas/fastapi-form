@@ -32,6 +32,26 @@ const EtlPolling = (function () {
 
     // ── Definición de parámetros conocidos ────────────────────────────────────
     const PARAM_DEFINITIONS = {
+        'curve_paths': {
+            label: 'Rutas de curvas Tika',
+            placeholder: 'Una ruta por línea',
+            type: 'text',
+            multiline: true,
+            format: (v) => v
+                ? String(v)
+                    .replace(/\r\n/g, '\n')
+                    .replace(/\r/g, '\n')
+                    .split(/\n|;/)
+                    .map(x => x.trim())
+                    .filter(Boolean)
+                : [],
+        },
+        'curve_years': {
+            label: 'Años de curvas',
+            placeholder: 'Ejemplo: 2026, 2027',
+            type: 'text',
+            format: (v) => v ? String(v).split(',').map(x => parseInt(x.trim(), 10)).filter(x => !Number.isNaN(x)) : [],
+        },
         'modelos_tika': {
             label: 'Modelos Tika (separados por coma)',
             placeholder: 'Ejemplo: 161, 328, 485',
@@ -79,6 +99,18 @@ const EtlPolling = (function () {
             placeholder: 'Ejemplo: 2620',
             type: 'number',
             format: (v) => v ? parseInt(v) : null,
+        },
+        'fecha_inicio_incremental': {
+            label: 'Fecha inicio incremental',
+            placeholder: 'Ejemplo: 2025-12-29',
+            type: 'date',
+            format: (v) => v ? String(v).trim() : null,
+        },
+        'fecha_inicio_exportacion': {
+            label: 'Fecha inicio exportacion',
+            placeholder: 'Ejemplo: 2025-12-29',
+            type: 'date',
+            format: (v) => v ? String(v).trim() : null,
         },
     };
 
@@ -154,11 +186,28 @@ const EtlPolling = (function () {
         }
     }
 
+    function applyDependencyFilter(selectedGroup, searchTerm) {
+        const rows = document.querySelectorAll('.job-row');
+        const query = (searchTerm || '').trim().toLowerCase();
+
+        rows.forEach(function (row) {
+            const group = (row.dataset.dependencyGroup || 'Otros');
+            const groupMatches = selectedGroup === 'Todos' || group === selectedGroup;
+            const searchableText = (row.textContent || '').toLowerCase();
+            const searchMatches = !query || searchableText.includes(query);
+            row.style.display = (groupMatches && searchMatches) ? '' : 'none';
+        });
+    }
+
     // ── Actualizar filas de la tabla de jobs ──────────────────────────────────
     function updateJobRows(jobs) {
         jobs.forEach(function (job) {
             const row = document.querySelector('tr[data-job-id="' + job.job_id + '"]');
             if (!row) return;
+
+            if (job.dependency_group) {
+                row.dataset.dependencyGroup = job.dependency_group;
+            }
 
             const newStatus = job.last_status || '';
             const oldStatus = prevStates[job.job_id];
@@ -266,9 +315,18 @@ const EtlPolling = (function () {
             const lastValue = hasLast ? lastParams[paramName] : defaultParams[paramName];
             const displayValue = Array.isArray(lastValue) ? lastValue.join(', ') : lastValue;
 
-            const fieldHtml = `
-                <div class="mb-3">
-                    <label for="param-${paramName}" class="form-label">${paramDef.label}</label>
+            const controlHtml = paramDef.multiline
+                ? `
+                    <textarea
+                        id="param-${paramName}"
+                        data-param-name="${paramName}"
+                        class="form-control"
+                        placeholder="${paramDef.placeholder || ''}"
+                        rows="3"
+                        autocomplete="off"
+                    >${displayValue ?? ''}</textarea>
+                `
+                : `
                     <input
                         id="param-${paramName}"
                         data-param-name="${paramName}"
@@ -278,6 +336,12 @@ const EtlPolling = (function () {
                         value="${displayValue ?? ''}"
                         autocomplete="off"
                     >
+                `;
+
+            const fieldHtml = `
+                <div class="mb-3">
+                    <label for="param-${paramName}" class="form-label">${paramDef.label}</label>
+                    ${controlHtml}
                 </div>
             `;
             container.insertAdjacentHTML('beforeend', fieldHtml);
@@ -496,6 +560,74 @@ const EtlPolling = (function () {
     }
 
     // ── Inicialización general ────────────────────────────────────────────────
+    function renderFlowMap(selectedGroup) {
+        const container = document.getElementById('etl-flow-map');
+        const empty = document.getElementById('etl-flow-empty');
+        if (!container) return;
+
+        const flowApi = '/api/etl/flow?group=' + encodeURIComponent(selectedGroup || 'Todos');
+        fetch(flowApi)
+            .then(function (res) { return res.ok ? res.json() : Promise.resolve({ nodes: [], edges: [] }); })
+            .then(function (payload) {
+                const nodes = payload.nodes || [];
+                const edges = payload.edges || [];
+
+                if (!nodes.length) {
+                    container.innerHTML = '';
+                    if (empty) {
+                        empty.classList.remove('d-none');
+                    }
+                    return;
+                }
+
+                if (empty) {
+                    empty.classList.add('d-none');
+                }
+
+                const groupOrder = ['Siembras', 'Producción', 'Planeación', 'Analítica', 'Otros'];
+                const groups = {};
+                groupOrder.forEach(function (name) { groups[name] = []; });
+                groups['Otros'] = [];
+
+                nodes.forEach(function (node) {
+                    const g = node.dependency_group || 'Otros';
+                    if (!groups[g]) groups[g] = [];
+                    groups[g].push(node);
+                });
+
+                const html = groupOrder.map(function (groupName) {
+                    const items = groups[groupName] || [];
+                    if (!items.length) return '';
+                    const cards = items.map(function (node) {
+                        const ready = node.dependency_status === 'ready' ? 'text-success' : 'text-warning';
+                        return '<div class="etl-flow-node ' + ready + '"><strong>' + (node.name || node.job_id) + '</strong><small>' + (node.job_id || '') + '</small></div>';
+                    }).join('');
+                    return '<div class="etl-flow-column"><div class="etl-flow-title">' + groupName + '</div>' + cards + '</div>';
+                }).join('');
+
+                container.innerHTML = '<div class="etl-flow-grid">' + html + '</div>';
+
+                const MapGraph = document.createElement('div');
+                MapGraph.className = 'etl-flow-edges';
+                const edgeHtml = edges.map(function (edge) {
+                    const fromNode = nodes.find(function (node) { return node.job_id === edge.from; });
+                    const toNode = nodes.find(function (node) { return node.job_id === edge.to; });
+                    if (!fromNode || !toNode) return '';
+                    return '<div class="etl-flow-edge"><span>' + (fromNode.name || fromNode.job_id) + '</span><i class="fas fa-arrow-right"></i><span>' + (toNode.name || toNode.job_id) + '</span></div>';
+                }).join('');
+                if (edgeHtml) {
+                    container.insertAdjacentHTML('beforeend', '<div class="etl-flow-edges-wrap">' + edgeHtml + '</div>');
+                }
+            })
+            .catch(function (err) {
+                console.warn('[EtlPolling] Error cargando flow map:', err);
+                container.innerHTML = '';
+                if (empty) {
+                    empty.classList.remove('d-none');
+                }
+            });
+    }
+
     function init() {
         const section = document.querySelector('section[data-page-type]');
         if (!section) return;
@@ -505,6 +637,32 @@ const EtlPolling = (function () {
         runApi   = section.dataset.runApi   || '/api/etl/jobs';
         lastParamsApi = section.dataset.lastParamsApi || null;
         useRunModal = section.dataset.useRunModal === '1';
+
+        const searchInput = document.getElementById('etl-job-search');
+        let currentGroup = 'Todos';
+
+        document.querySelectorAll('[data-group-filter]').forEach(function (button) {
+            button.addEventListener('click', function () {
+                const selectedGroup = button.dataset.groupFilter;
+                currentGroup = selectedGroup;
+                document.querySelectorAll('[data-group-filter]').forEach(function (item) {
+                    const isActive = item === button;
+                    item.classList.toggle('active', isActive);
+                    item.classList.toggle('btn-primary', isActive);
+                    item.classList.toggle('btn-outline-primary', !isActive);
+                });
+                applyDependencyFilter(selectedGroup, searchInput ? searchInput.value : '');
+                if (pageType === 'etl') {
+                    renderFlowMap(selectedGroup);
+                }
+            });
+        });
+
+        if (searchInput) {
+            searchInput.addEventListener('input', function () {
+                applyDependencyFilter(currentGroup, this.value);
+            });
+        }
 
         if (pageType === 'etl' || pageType === 'load') {
             if (document.getElementById('jobsTable')) {
@@ -522,6 +680,8 @@ const EtlPolling = (function () {
                     }
                 });
 
+                applyDependencyFilter('Todos');
+                renderFlowMap('Todos');
                 poll();
             }
         } else if (pageType === 'runs') {
