@@ -2,9 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
+from fastapi import APIRouter, HTTPException
 
 from app.core.config_store import (
     clear_config_overrides,
@@ -15,29 +13,7 @@ from app.core.config_store import (
 )
 from app.core.settings import settings
 
-router = APIRouter(prefix="/config")
-templates = Jinja2Templates(directory=str(settings.TEMPLATES_DIR))
-
-
-@router.get("", response_class=HTMLResponse)
-def config_page(request: Request):
-    groups = get_setting_groups()
-    defaults = get_default_settings()
-    current = get_config_overrides()
-    values_by_group = {
-        group: {key: getattr(settings, key) for key in keys}
-        for group, keys in groups.items()
-    }
-    return templates.TemplateResponse(
-        "configuracion.html",
-        {
-            "request": request,
-            "groups": groups,
-            "settings_by_group": values_by_group,
-            "default_values": defaults,
-            "current_overrides": current,
-        },
-    )
+router = APIRouter(prefix="/api/config")
 
 
 @router.get("/groups")
@@ -47,10 +23,16 @@ def list_config_groups() -> dict[str, list[str]]:
 
 @router.get("/values")
 def list_config_values() -> dict[str, Any]:
-    values = {}
-    for group, keys in get_setting_groups().items():
-        values[group] = {key: getattr(settings, key) for key in keys}
-    return values
+    """Config completa para la pantalla de administracion (frontend Vue):
+    grupos, valores actuales, defaults de fabrica y overrides activos."""
+    groups = get_setting_groups()
+    values = {key: getattr(settings, key) for keys in groups.values() for key in keys}
+    return {
+        "groups": groups,
+        "values": values,
+        "defaults": get_default_settings(),
+        "overrides": get_config_overrides(),
+    }
 
 
 @router.post("/save")

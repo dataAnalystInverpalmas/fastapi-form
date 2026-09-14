@@ -42,7 +42,7 @@ services:
       SMB_PASSWORD: ${SMB_PASSWORD:-}
       SMB_DOMAIN: ${SMB_DOMAIN:-}
       SMB_OPTIONS: ${SMB_OPTIONS:-username=,uid=1000,gid=1000,vers=3.0,iocharset=utf8,sec=ntlm}
-      DB_HOST: db
+      DB_HOST: ${DB_HOST:-db}
       DB_PORT: 3306
       DB_USER: ${DB_USER:-appuser}
       DB_PASSWORD: ${DB_PASSWORD:-apppass}

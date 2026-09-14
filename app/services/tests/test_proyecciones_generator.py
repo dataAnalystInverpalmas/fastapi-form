@@ -69,6 +69,7 @@ class ProyeccionesGeneratorIntegrityTest(unittest.TestCase):
                     ),
                 ),
                 patch.object(proy_mod.settings, "PROYECCIONES_OUTPUT_PATH", str(output_path), create=True),
+                patch.object(proy_mod, "dataframe_to_sql"),
             ):
                 _, audit = proy_mod.generate_proyecciones_csv(debug=True)
 
@@ -146,6 +147,7 @@ class ProyeccionesGeneratorIntegrityTest(unittest.TestCase):
                     ),
                 ),
                 patch.object(proy_mod.settings, "PROYECCIONES_OUTPUT_PATH", str(output_path), create=True),
+                patch.object(proy_mod, "dataframe_to_sql"),
             ):
                 output, audit = proy_mod.generate_proyecciones_csv(debug=True)
 
@@ -196,6 +198,7 @@ class ProyeccionesGeneratorIntegrityTest(unittest.TestCase):
                     ),
                 ),
                 patch.object(proy_mod.settings, "PROYECCIONES_OUTPUT_PATH", str(output_path), create=True),
+                patch.object(proy_mod, "dataframe_to_sql"),
             ):
                 _, audit = proy_mod.generate_proyecciones_csv(debug=True)
 

@@ -5,15 +5,22 @@ import os
 from pathlib import Path
 from typing import Optional
 
+from app.core.settings import settings
+
 logger = logging.getLogger(__name__)
 
 
 def is_docker_runtime() -> bool:
+    # APP_ENV se lee del entorno del proceso en vivo (no de settings.APP_ENV,
+    # que es un valor cacheado al arrancar) porque esto decide como se
+    # resuelven las rutas de red segun el runtime real (Windows local vs
+    # contenedor Linux) -- no es una preferencia de negocio editable desde
+    # /config, es un hecho de infraestructura del proceso actual.
     return os.getenv("APP_ENV", "").lower() in {"docker", "container"} or os.path.exists("/.dockerenv")
 
 
 def get_smb_mount_root() -> Path:
-    return Path(os.getenv("SMB_MOUNT_ROOT", "/mnt/smb")).expanduser()
+    return Path(settings.SMB_MOUNT_ROOT).expanduser()
 
 
 def resolve_network_path(file_path: str, *, mount_root: Optional[Path] = None) -> str:
@@ -36,12 +43,12 @@ def resolve_network_path(file_path: str, *, mount_root: Optional[Path] = None) -
     share = parts[1]
     relative_parts = parts[2:]
 
-    configured_server = os.getenv("SMB_SERVER", "172.10.18.2").strip().lower()
-    configured_share = os.getenv("SMB_SHARE", "produc").strip().lower()
+    configured_server = settings.SMB_SERVER.strip().lower()
+    configured_share = settings.SMB_SHARE.strip().lower()
     mount_root_path = mount_root or get_smb_mount_root()
 
     if server.lower() == configured_server and share.lower() == configured_share:
-        base_path = Path(os.getenv("SMB_MOUNT_PATH", str(mount_root_path / configured_share)))
+        base_path = Path(settings.SMB_MOUNT_PATH or str(mount_root_path / configured_share))
         resolved_path = base_path.joinpath(*relative_parts) if relative_parts else base_path
     elif share.lower() == configured_share or server.lower() == configured_server:
         resolved_path = mount_root_path.joinpath(*relative_parts) if relative_parts else mount_root_path

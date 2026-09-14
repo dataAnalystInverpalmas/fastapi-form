@@ -10,7 +10,7 @@ from app.services.utils.dbf_reader import normalize_path
 from app.services.etl.helpers import normalize_finca_series, resolve_date_range_params
 
 
-ALL_FARMS_CODE = "000"
+ALL_FARMS_CODE = settings.ALL_FARMS_CODE  # codigo de "todas las fincas consolidadas"
 
 
 FUSARIUM_BASE_QUERY = """

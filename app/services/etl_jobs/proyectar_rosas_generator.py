@@ -11,9 +11,6 @@ from app.core.settings import settings
 from app.services.utils.dbf_reader import normalize_path
 
 
-DEFAULT_OUTPUT_PATH = r"\\svrinverpalmas\usuarios\Outputs\proyeccion_rosas.csv"
-
-
 def normalize_to_thursday(date):
     if isinstance(date, pd.Series):
         days_to_thursday = 3 - date.dt.weekday
@@ -37,7 +34,7 @@ def extend_distribution_curve(curva, max_semanas: int = 52):
     if len(curva) >= max_semanas:
         return curva[:max_semanas]
     last_value = curva[-1]
-    extension = [last_value * (0.9 ** i) for i in range(1, max_semanas - len(curva) + 1)]
+    extension = [last_value * (settings.PROYECTAR_ROSAS_DECAY_FACTOR ** i) for i in range(1, max_semanas - len(curva) + 1)]
     return curva + extension
 
 
@@ -61,7 +58,7 @@ def _normalize_db_rows(rows: list[tuple], expected_columns: list[str], insert_de
             continue
 
         if insert_default_finca and len(row) == len(expected_columns) - 1:
-            normalized_rows.append((row[0], "000", *row[1:]))
+            normalized_rows.append((row[0], settings.ALL_FARMS_CODE, *row[1:]))
             continue
 
         raise ValueError(f"Unexpected row shape for {expected_columns}: {row!r}")
@@ -205,7 +202,7 @@ def proyectar_tallos(df_operaciones, df_variedades, fecha_inicio, fecha_fin):
             continue
 
         for i, pct in enumerate(curva_normal):
-            if abs(pct) < 0.001:
+            if abs(pct) < settings.PROYECTAR_ROSAS_PCT_TOLERANCE:
                 continue
 
             semanas_desde_evento = semana_inicio_curva + i - 1
@@ -238,7 +235,7 @@ def proyectar_tallos(df_operaciones, df_variedades, fecha_inicio, fecha_fin):
                 continue
 
             for i, pct in enumerate(curva_descuento):
-                if abs(pct) < 0.001:
+                if abs(pct) < settings.PROYECTAR_ROSAS_PCT_TOLERANCE:
                     continue
 
                 edad_descuento = edad_inicio_descuento + i
@@ -339,7 +336,7 @@ def _build_projection_summary(
 
 
 def _resolve_output_dir() -> Path:
-    configured = getattr(settings, "PROYECTAR_ROSAS_OUTPUT_PATH", DEFAULT_OUTPUT_PATH)
+    configured = settings.PROYECTAR_ROSAS_OUTPUT_PATH
     requested_path = Path(normalize_path(configured))
     if requested_path.suffix.lower() == ".csv":
         return requested_path.parent
@@ -352,7 +349,7 @@ def _build_arreglos_cortes_export(
     df_dates: pd.DataFrame,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     df_cuts = (
-        df_proyecciones[df_proyecciones["tipo"].isin(["RE"]) ]
+        df_proyecciones[df_proyecciones["tipo"].isin(settings.PROYECTAR_ROSAS_TIPO_REAL) ]
         .groupby(["fecha", "variedad", "bloque", "tipo"], as_index=False)["tallos"]
         .sum()
     )
@@ -389,7 +386,7 @@ def _build_export_frame(
         df_arre = df_arre[(df_arre["fecha"].notna())]
 
     df_cuts = (
-        df_proyecciones[df_proyecciones["tipo"].isin(["RE"]) ]
+        df_proyecciones[df_proyecciones["tipo"].isin(settings.PROYECTAR_ROSAS_TIPO_REAL) ]
         .groupby(["fecha", "variedad", "bloque", "tipo"], as_index=False)["tallos"]
         .sum()
     )
@@ -402,7 +399,7 @@ def _build_export_frame(
 
     df_cortes_reales = df_cuts[df_cuts["tipo"] == "RE"].copy() if not df_cuts.empty else pd.DataFrame(columns=["fecha", "variedad", "bloque", "tipo", "tallos", "ano", "semana"])
     df_podas_reales = df_pruning[df_pruning["tipo"].isin(["Poda", "S1", "S2", "S3"])].copy() if not df_pruning.empty else pd.DataFrame(columns=["fecha", "variedad", "bloque", "tipo", "tallos", "ano", "semana"])
-    df_podas_selectivas = df_podas_reales[df_podas_reales["tipo"].isin(["S1", "S2", "S3"])].copy() if not df_podas_reales.empty else pd.DataFrame(columns=["fecha", "variedad", "bloque", "tipo", "tallos", "ano", "semana"])
+    df_podas_selectivas = df_podas_reales[df_podas_reales["tipo"].isin(settings.PROYECTAR_ROSAS_TIPO_PODA_SELECTIVA)].copy() if not df_podas_reales.empty else pd.DataFrame(columns=["fecha", "variedad", "bloque", "tipo", "tallos", "ano", "semana"])
 
     projections: list[pd.DataFrame] = []
     for name, frame in [
@@ -439,11 +436,11 @@ def generate_proyectar_rosas_report(
 ) -> str:
     params = params or {}
     if isinstance(params, dict):
-        fecha_inicio = params.get("fecha_inicio", fecha_inicio or "2021-01-01")
-        fecha_fin = params.get("fecha_fin", fecha_fin or "2026-12-31")
+        fecha_inicio = params.get("fecha_inicio", fecha_inicio or settings.PROYECTAR_ROSAS_FECHA_INICIO_DEFAULT)
+        fecha_fin = params.get("fecha_fin", fecha_fin or settings.PROYECTAR_ROSAS_FECHA_FIN_DEFAULT)
 
-    fecha_inicio = str(fecha_inicio or "2021-01-01")
-    fecha_fin = str(fecha_fin or "2026-12-31")
+    fecha_inicio = str(fecha_inicio or settings.PROYECTAR_ROSAS_FECHA_INICIO_DEFAULT)
+    fecha_fin = str(fecha_fin or settings.PROYECTAR_ROSAS_FECHA_FIN_DEFAULT)
     fecha_inicio_dt = normalize_to_thursday(pd.to_datetime(fecha_inicio))
     fecha_fin_dt = normalize_to_thursday(pd.to_datetime(fecha_fin))
 
@@ -455,12 +452,12 @@ def generate_proyectar_rosas_report(
         df_proyecciones = df_proyecciones[df_proyecciones["tipo"].astype(str).str.upper() == "RE"].copy()
 
     if not df_proyecciones.empty and "finca" not in df_proyecciones.columns:
-        df_proyecciones["finca"] = "000"
+        df_proyecciones["finca"] = settings.ALL_FARMS_CODE
     if not df_arre.empty and "finca" not in df_arre.columns:
-        df_arre["finca"] = "000"
+        df_arre["finca"] = settings.ALL_FARMS_CODE
 
     df_re = df_proyecciones[df_proyecciones["tipo"] == "RE"].copy() if not df_proyecciones.empty else pd.DataFrame(columns=["fecha", "finca", "variedad", "bloque", "tallos", "tipo"])
-    df_pruning = df_arre[df_arre["tipo"].isin(["AR", "BA", "S1", "S2", "S3"])].copy() if not df_arre.empty else pd.DataFrame(columns=["fecha", "finca", "variedad", "bloque", "tallos", "tipo"])
+    df_pruning = df_arre[df_arre["tipo"].isin(settings.PROYECTAR_ROSAS_TIPO_PRUNING)].copy() if not df_arre.empty else pd.DataFrame(columns=["fecha", "finca", "variedad", "bloque", "tallos", "tipo"])
     df_total_operaciones = pd.concat([df_re, df_pruning], ignore_index=True)
     df_total_operaciones = (
         df_total_operaciones.groupby(["fecha", "finca", "variedad", "bloque", "tipo"], as_index=False)["tallos"]
@@ -514,7 +511,7 @@ def generate_proyectar_rosas_report(
     else:
         pd.DataFrame(columns=["fecha", "finca", "variedad", "bloque", "tipo", "tallos"]).to_csv(cortes_path, index=False)
 
-    requested_path = Path(normalize_path(getattr(settings, "PROYECTAR_ROSAS_OUTPUT_PATH", DEFAULT_OUTPUT_PATH)))
+    requested_path = Path(normalize_path(settings.PROYECTAR_ROSAS_OUTPUT_PATH))
     if requested_path.suffix.lower() == ".csv":
         requested_path.parent.mkdir(parents=True, exist_ok=True)
         df_final.to_csv(requested_path, index=False)

@@ -44,11 +44,7 @@ async function consultar() {
   try {
     const encoded = encodeURIComponent(ruta.value.trim())
     const { data: res } = await axios.get(`/api/dbf/${encoded}?limit=${limite.value}`)
-    if (res.error) {
-      error.value = res.error
-    } else {
-      data.value = res
-    }
+    data.value = res
   } catch (err) {
     error.value = err.response?.data?.detail || err.message || 'Error al consultar el archivo.'
   } finally {

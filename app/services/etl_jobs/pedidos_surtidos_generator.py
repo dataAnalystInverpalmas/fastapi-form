@@ -15,32 +15,8 @@ from app.services.etl.helpers import execute_query, read_dbf, safe_int_series, v
 # Constantes
 # ---------------------------------------------------------------------------
 
-FLOR_MAP: dict[str, str] = {
-    "CLA": "CLAVEL",
-    "CM0": "MINI",
-}
-
-COLOR_REPLACEMENTS: dict[str, str] = {
-    "LILAS": "LILA",
-    "BICOLOR_PURPURA": "NOVEDAD",
-    "BICOLOR_AMARILLO": "NOVEDAD",
-    "BICOLOR_ROJO": "NOVEDAD",
-    "NOVEDAD_BICOLOR": "NOVEDAD",
-    "NOVEDADES": "NOVEDAD",
-    "BICOLOR": "NOVEDAD",
-    "AZUL": "BLANCO",
-    "VERDE_TINTURADO": "BLANCO",
-    "RAINBOW": "NOVEDAD",
-    "SURTIDOS": "NOVEDAD",
-    "NEGRO": "BLANCO",
-    "RAINBOW TINTURADO": "NOVEDAD",
-    "AMARILLO_NATURAL_CON": "AMARILLO",
-    "ROSADO O HOT PINK": "ROSADO OSCURO",
-    "NOVEDADES BICOLOR": "NOVEDAD",
-    "ROSADO_OSCURO": "ROSADO OSCURO",
-    "": "NOVEDAD",
-    "RAINBOW_TINTURADO": "BLANCO",
-}
+FLOR_MAP: dict[str, str] = settings.PEDIDOS_SURTIDO_FLOR_MAP
+COLOR_REPLACEMENTS: dict[str, str] = settings.PEDIDOS_SURTIDO_COLOR_REPLACEMENTS
 
 REQUIRED_COLUMNS: set[str] = {
     "nomcli", "despacho", "nomzona", "nompais", "nomciudad",
@@ -84,11 +60,13 @@ def _last_52_week_dates(df_dates: pd.DataFrame, max_fecha: pd.Timestamp) -> pd.D
         df_dates[df_dates["fecha"] <= max_fecha]
         .sort_values("fecha")
         .drop_duplicates(subset=["fecha"], keep="last")
-        .tail(52)
+        .tail(settings.PEDIDOS_SURTIDO_VENTANA_SEMANAS)
         .copy()
     )
     if df_window.empty:
-        raise RuntimeError("No fue posible determinar las ultimas 52 semanas de despachos.")
+        raise RuntimeError(
+            f"No fue posible determinar las ultimas {settings.PEDIDOS_SURTIDO_VENTANA_SEMANAS} semanas de despachos."
+        )
     return df_window
 
 
@@ -154,7 +132,7 @@ def generate_pedidos_surtidos(params: dict[str, Any] | None = None) -> str:
 
     # 7. Construir df_venta (solo CLA y CM0) y proyectar el año desde el input
     df_venta = df_q[["aass", "semana", "nomvarieda", "nomgcolor", "flor", "tot_tallos"]].copy()
-    df_venta = df_venta[df_venta["flor"].isin(["CLA", "CM0"])].copy()
+    df_venta = df_venta[df_venta["flor"].isin(settings.PEDIDOS_SURTIDO_FLOR_FILTER)].copy()
 
     # 8. Normalizar texto
     df_venta["nomvarieda"] = df_venta["nomvarieda"].str.replace(" ", "_", regex=False)

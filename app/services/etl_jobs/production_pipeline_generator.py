@@ -7,7 +7,7 @@ import pandas as pd
 
 from app.core.settings import settings
 from app.services.utils.dbf_reader import normalize_path
-from app.services.etl.helpers import resolve_date_range_params
+from app.services.etl.helpers import execute_query, resolve_date_range_params
 from app.services.utils.curve_functions import curve_ini, curve_values_by_age, datos_curva, rescale_to_total
 
 
@@ -17,7 +17,7 @@ POSITIVE_TOLERANCE = 1e-9
 
 DETAIL_SORT_COLUMNS = ["finca", "bloque", "nvariedad", "cosecha", "ciclo", "edad"]
 SUMMARY_SORT_COLUMNS = ["finca", "nvariedad", "ciclo"]
-ALL_FARMS_CODE = "000"
+ALL_FARMS_CODE = settings.ALL_FARMS_CODE  # codigo de "todas las fincas consolidadas"
 FILTER_COLUMN = "filtro"
 MIN_POINTS_CYCLE_1 = 8
 MIN_POINTS_CYCLE_2 = 14
@@ -283,6 +283,36 @@ def _load_source(fecha_inicio: pd.Timestamp, fecha_fin: pd.Timestamp) -> pd.Data
     return df
 
 
+def _load_discarded_curves() -> pd.DataFrame:
+    rows = execute_query(
+        "SELECT finca, bloque, nvariedad, cosecha FROM ld_descarta_curva"
+    ) or []
+    df = pd.DataFrame(rows, columns=["finca", "bloque", "nvariedad", "cosecha"])
+    if df.empty:
+        return df
+
+    df["finca"] = df["finca"].astype(str).str.strip()
+    df["nvariedad"] = df["nvariedad"].astype(str).str.strip()
+    df["cosecha"] = df["cosecha"].astype(str).str.strip()
+    df["bloque"] = pd.to_numeric(df["bloque"], errors="coerce")
+    return df.dropna(subset=["bloque"])
+
+
+def _exclude_discarded_curves(df_raw: pd.DataFrame) -> pd.DataFrame:
+    descartadas = _load_discarded_curves()
+    if descartadas.empty:
+        return df_raw
+
+    df = df_raw.copy()
+    df["bloque"] = pd.to_numeric(df["bloque"], errors="coerce")
+    marcador = descartadas.assign(_descartada=True)
+    filtrado = df.merge(marcador, on=["finca", "bloque", "nvariedad", "cosecha"], how="left")
+    filtrado = filtrado[filtrado["_descartada"].isna()].drop(columns=["_descartada"])
+    if filtrado.empty:
+        raise RuntimeError("Todas las curvas fueron excluidas por ld_descarta_curva.")
+    return filtrado.reset_index(drop=True)
+
+
 def _build_base(df_raw: pd.DataFrame) -> pd.DataFrame:
     df = df_raw.copy()
     df["edad"] = df["edad"].astype(int)
@@ -433,6 +463,7 @@ def generate_production_pipeline(params: dict | None = None) -> str:
     smoothing_params = _resolve_smoothing_params(params)
     fecha_inicio, fecha_fin = resolve_date_range_params(params)
     df_raw = _load_source(fecha_inicio=fecha_inicio, fecha_fin=fecha_fin)
+    df_raw = _exclude_discarded_curves(df_raw)
     base = _build_base(df_raw)
     final = _sort_report_rows(
         _annotate_cycle_peaks(

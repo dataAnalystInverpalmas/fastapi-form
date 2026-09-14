@@ -12,7 +12,7 @@ from app.services.etl.helpers import (
 )
 
 
-ALL_FARMS_CODE = "000"
+ALL_FARMS_CODE = settings.ALL_FARMS_CODE  # codigo de "todas las fincas consolidadas"
 
 
 def _build_qualities_export_rows(df_cal: pd.DataFrame) -> pd.DataFrame:
@@ -76,7 +76,10 @@ def _generate_qualities_export(fecha_inicio: pd.Timestamp, fecha_fin: pd.Timesta
         .transform(lambda values: values / values.sum())
     )
 
-    df_nal = df_cal.query("grado == 'NAL' and aporte <= 0.5")[["finca", "fecha", "bloque", "nvari"]]
+    nal_aporte_max = settings.QUALITIES_PIPELINE_NAL_APORTE_MAX
+    df_nal = df_cal.query(
+        "grado == 'NAL' and aporte <= @nal_aporte_max"
+    )[["finca", "fecha", "bloque", "nvari"]]
     df_cal = pd.merge(df_cal, df_nal, on=["finca", "fecha", "bloque", "nvari"], how="inner")
     if df_cal.empty:
         raise RuntimeError("No quedaron registros al aplicar el filtro NAL <= 50%.")

@@ -1,5 +1,5 @@
 ﻿<script setup>
-import { ref, computed, inject, onMounted } from 'vue'
+import { ref, computed, inject } from 'vue'
 import axios from 'axios'
 import { useEtlPolling, statusMeta, formatDate } from '@/composables/useEtlPolling'
 
@@ -8,8 +8,9 @@ const toast = inject('toast', () => {})
 const jobs = ref([])
 const search = ref('')
 const statusFilter = ref('')
+const showAllDuringFlow = ref(false)
 
-const { kpis, countdown, pollNow } = useEtlPolling({
+const { kpis, countdown, pollError, pollNow } = useEtlPolling({
   pageType: 'etl',
   jobsApi: '/api/etl/jobs',
   onJobsUpdate: (data) => {
@@ -37,33 +38,12 @@ const orderedJobs = computed(() => {
   })
 })
 
-const flowSummary = computed(() => {
-  const summary = new Map()
-  for (const job of orderedJobs.value) {
-    const group = String(job.flow_group || 'Sin grupo')
-    const current = summary.get(group) || { group, total: 0, ready: 0, missing: 0 }
-    current.total += 1
-    if ((job.dependency_status || 'none') === 'ready') current.ready += 1
-    if ((job.dependency_status || 'none') === 'missing') current.missing += 1
-    summary.set(group, current)
-  }
-  return [...summary.values()]
-})
-
-const recommendedJobs = computed(() => {
-  return orderedJobs.value
-    .filter((job) => {
-      const depStatus = String(job.dependency_status || 'none')
-      const lastStatus = String(job.last_status || '')
-      if (depStatus !== 'ready') return false
-      if (lastStatus === 'running' || lastStatus === 'queued') return false
-      return true
-    })
-    .slice(0, 8)
-})
-
 const filteredJobs = computed(() => {
   let data = orderedJobs.value
+  if (activeFlow.value?.status === 'running' && !showAllDuringFlow.value) {
+    const flowIds = new Set(activeFlow.value.steps.map((step) => step.job_id))
+    data = data.filter((job) => flowIds.has(job.job_id))
+  }
   if (statusFilter.value) {
     if (statusFilter.value === 'dependency_ready') {
       data = data.filter((job) => (job.dependency_status || 'none') === 'ready')
@@ -88,7 +68,6 @@ const showModal = ref(false)
 const modalJob = ref(null)
 const modalParams = ref({})
 const running = ref({})
-const flowEdges = ref([])
 
 const PARAM_DEFINITIONS = {
   curve_paths: { label: 'Rutas de curvas Tika', type: 'text', placeholder: 'Una ruta por línea', multiline: true },
@@ -103,6 +82,7 @@ const PARAM_DEFINITIONS = {
   semana_fin: { label: 'Semana fin (YYWW)', type: 'number', placeholder: 'Ej: 2620' },
   fecha_inicio_incremental: { label: 'Fecha inicio incremental', type: 'date', placeholder: 'Ej: 2025-12-29' },
   fecha_inicio_exportacion: { label: 'Fecha inicio exportacion', type: 'date', placeholder: 'Ej: 2025-12-29' },
+  enviar_email: { label: 'Enviar por correo el reporte de cumplimiento', type: 'checkbox' },
 }
 
 function formatArrayValue(key, value) {
@@ -151,36 +131,133 @@ function dependencyTooltip(job) {
   return missing.map((dep) => `${dep.job_id} (${dep.last_status || 'sin ejecucion'})`).join(', ')
 }
 
-const filteredFlowEdges = computed(() => {
-  const q = search.value.trim().toLowerCase()
-  return [...flowEdges.value]
-    .filter((edge) => {
-      if (!q) return true
-      const text = [edge.from, edge.to, edge.from_name, edge.to_name]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
-      return text.includes(q)
-    })
-    .sort((a, b) => {
-      const groupCmp = String(a.flow_group || '').localeCompare(String(b.flow_group || ''), 'es')
-      if (groupCmp !== 0) return groupCmp
-      return String(a.to_name || '').localeCompare(String(b.to_name || ''), 'es')
-    })
-})
+// ── Flujos de trabajo (secuencias controladas de jobs) ─────────────────────
+// Cada flujo se ejecuta job por job, esperando a que cada uno termine
+// exitosamente antes de lanzar el siguiente. Mas flujos se agregaran aqui.
+const WORK_FLOWS = [
+  {
+    id: 'flujo_produccion',
+    label: 'Ejecutar flujo para producción',
+    steps: ['proyecciones_csv', 'quipus_vs_proy', 'produccion_picos', 'compare_tika_produccion_despachos', 'comparar_picos_demanda'],
+  },
+  {
+    id: 'flujo_informes',
+    label: 'Ejecutar Flujo Informes',
+    // producto_procesado_csv va primero porque los demas dependen de sus
+    // datos actualizados. Entre los tres restantes el orden no importa
+    // (no dependen entre si); se ejecutan uno a la vez igual que cualquier
+    // otro flujo.
+    steps: ['producto_procesado_csv', 'dirigidas_analyzer', 'aportes_grados_pipeline', 'aportes_ponderados_problemas'],
+  },
+  {
+    id: 'flujo_siembras',
+    label: 'Ejecutar flujo para siembras',
+    steps: ['load_process_siembras', 'load_siembras_teo_real'],
+  },
+  {
+    id: 'flujo_curvas_clavel',
+    label: 'Preparar curvas clavel',
+    steps: ['tabla_curvas_clavel', 'resumir_curvas_usadas'],
+  },
+]
 
-async function loadFlow() {
-  try {
-    const { data } = await axios.get('/api/etl/flow')
-    flowEdges.value = data?.edges || []
-  } catch {
-    flowEdges.value = []
-  }
+const activeFlow = ref(null)
+
+function jobLabel(jobId) {
+  return jobs.value.find((j) => j.job_id === jobId)?.name || jobId
 }
 
-onMounted(() => {
-  loadFlow()
-})
+// ── Accesos directos a jobs individuales ────────────────────────────────────
+// Agregar aqui nuevos job_id para exponerlos como boton directo en la seccion.
+const QUICK_JOBS = [
+  { job_id: 'pedidos_surtidos', label: 'Pedidos Surtidos (Despachos)' },
+  { job_id: 'quipus_vs_proy', label: 'Quipus vs Proyecciones' },
+  { job_id: 'anomalias_lonas', label: 'Anomalías en Lonas' },
+]
+
+function findJob(jobId) {
+  return jobs.value.find((j) => j.job_id === jobId) || null
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+const TERMINAL_STATUSES = new Set(['success', 'failed', 'cancelado'])
+
+async function waitForRunCompletion(runId) {
+  const POLL_MS = 3000
+  const MAX_WAIT_MS = 60 * 60 * 1000 // tope de seguridad: 60 minutos
+  const start = Date.now()
+  while (Date.now() - start < MAX_WAIT_MS) {
+    await delay(POLL_MS)
+    try {
+      const { data } = await axios.get('/api/etl/runs')
+      const run = data.find((r) => r.run_id === runId)
+      if (run && TERMINAL_STATUSES.has(run.status)) return run
+    } catch {
+      // Error transitorio de red: se reintenta en el siguiente ciclo.
+    }
+  }
+  return { status: 'failed', error_message: 'Tiempo de espera agotado esperando la finalización del job.' }
+}
+
+async function runFlow(flow) {
+  if (activeFlow.value?.status === 'running') return
+
+  activeFlow.value = {
+    id: flow.id,
+    label: flow.label,
+    steps: flow.steps.map((jobId) => ({ job_id: jobId, status: 'pending', run_id: null, error: null })),
+    status: 'running',
+  }
+  showAllDuringFlow.value = false
+  toast(`Iniciando flujo "${flow.label}"...`, 'info')
+
+  for (const step of activeFlow.value.steps) {
+    step.status = 'running'
+    try {
+      const { data } = await axios.post(`/api/etl/jobs/${step.job_id}/run`, { params: {} })
+      step.run_id = data.run_id
+      pollNow()
+      const run = await waitForRunCompletion(data.run_id)
+      if (run.status !== 'success') {
+        step.status = run.status === 'cancelado' ? 'cancelado' : 'failed'
+        step.error = run.error_message || 'El job no finalizó correctamente.'
+        activeFlow.value.status = 'failed'
+        toast(`Flujo detenido: ${jobLabel(step.job_id)} terminó en estado "${step.status}".`, 'danger')
+        pollNow()
+        return
+      }
+      step.status = 'success'
+    } catch (err) {
+      step.status = 'failed'
+      step.error = err.response?.data?.detail || err.message || 'Error al encolar el job.'
+      activeFlow.value.status = 'failed'
+      toast(`Flujo detenido: no se pudo ejecutar ${jobLabel(step.job_id)}.`, 'danger')
+      return
+    }
+  }
+
+  activeFlow.value.status = 'success'
+  toast(`Flujo "${flow.label}" completado con éxito.`, 'success')
+  pollNow()
+}
+
+function flowStatusMeta(status) {
+  if (status === 'running') return { tone: 'text-bg-primary', label: 'En ejecución', icon: 'fas fa-rotate' }
+  if (status === 'success') return { tone: 'text-bg-success', label: 'Completado', icon: 'fas fa-circle-check' }
+  if (status === 'failed') return { tone: 'text-bg-danger', label: 'Detenido con error', icon: 'fas fa-circle-xmark' }
+  return { tone: 'text-bg-secondary', label: status, icon: 'fas fa-minus' }
+}
+
+function stepStatusMeta(status) {
+  if (status === 'pending') return { tone: 'text-bg-secondary', label: 'pendiente', icon: 'fas fa-clock' }
+  if (status === 'running') return { tone: 'text-bg-primary', label: 'ejecutando', icon: 'fas fa-rotate' }
+  if (status === 'success') return { tone: 'text-bg-success', label: 'listo', icon: 'fas fa-check' }
+  if (status === 'cancelado') return { tone: 'text-bg-dark', label: 'cancelado', icon: 'fas fa-ban' }
+  return { tone: 'text-bg-danger', label: 'falló', icon: 'fas fa-xmark' }
+}
 
 async function openModal(job) {
   modalJob.value = job
@@ -205,17 +282,31 @@ async function openModal(job) {
   showModal.value = true
 }
 
+function datesInOrder(params) {
+  if (!params?.fecha_inicio || !params?.fecha_fin) return true
+  return new Date(params.fecha_inicio) <= new Date(params.fecha_fin)
+}
+
 async function confirmRun() {
   const job = modalJob.value
   if (!job) return
+  const payload = buildPayload(job)
+  if (!datesInOrder(payload.params)) {
+    toast('La fecha de inicio no puede ser mayor que la fecha fin.', 'danger')
+    return
+  }
   showModal.value = false
-  await runJob(job.job_id, buildPayload(job))
+  await runJob(job.job_id, payload)
 }
 
 function buildPayload(job) {
   const params = {}
   for (const [key, rawVal] of Object.entries(modalParams.value)) {
     const def = PARAM_DEFINITIONS[key]
+    if (def?.type === 'checkbox') {
+      params[key] = rawVal === true || rawVal === 'true'
+      continue
+    }
     const value = String(rawVal).trim()
     if (!value) continue
     if (def?.type === 'number') {
@@ -236,9 +327,8 @@ async function runJob(jobId, payload = { params: {} }) {
   running.value[jobId] = true
   try {
     const { data } = await axios.post(`/api/etl/jobs/${jobId}/run`, payload)
-    toast(`Job <strong>${jobId}</strong> enviado a la cola (run #${data.run_id}).`, 'info')
+    toast(`Job ${jobId} enviado a la cola (run #${data.run_id}).`, 'info')
     pollNow()
-    loadFlow()
   } catch (err) {
     const msg = err.response?.data?.detail || 'Error al encolar el job.'
     toast(msg, 'danger')
@@ -249,6 +339,23 @@ async function runJob(jobId, payload = { params: {} }) {
 
 function isActive(job) {
   return job.last_status === 'running' || job.last_status === 'queued' || running.value[job.job_id]
+}
+
+const cancelling = ref({})
+
+async function cancelRun(job) {
+  if (!job.last_run_id) return
+  cancelling.value[job.job_id] = true
+  try {
+    const { data } = await axios.post(`/api/etl/runs/${job.last_run_id}/cancel`)
+    toast(data.message || 'Ejecución cancelada.', 'warning')
+    pollNow()
+  } catch (err) {
+    const msg = err.response?.data?.detail || 'No se pudo cancelar la ejecución.'
+    toast(msg, 'danger')
+  } finally {
+    cancelling.value[job.job_id] = false
+  }
 }
 </script>
 
@@ -269,6 +376,11 @@ function isActive(job) {
       </div>
     </div>
 
+    <div v-if="pollError" class="alert alert-warning py-2 small d-flex align-items-center gap-2">
+      <i class="fas fa-triangle-exclamation"></i>
+      Conexión inestable con el servidor: {{ pollError }}. Los datos en pantalla pueden estar desactualizados.
+    </div>
+
     <div class="row g-3 mb-4">
       <div class="col-6 col-md-3" v-for="kpi in kpiCards" :key="kpi.key">
         <div class="card kpi-card border-0 shadow-sm h-100" :class="'kpi-' + kpi.key + (kpi.key === 'running' && kpis.running > 0 ? ' kpi-active' : '')">
@@ -282,91 +394,71 @@ function isActive(job) {
 
     <div class="card border-0 shadow-sm mb-4">
       <div class="card-header bg-light border-bottom d-flex justify-content-between align-items-center">
-        <strong>Mapa de flujo ETL</strong>
-        <span class="text-muted small">Secuencia sugerida por etapa</span>
+        <strong>Siguientes recomendados</strong>
+        <span class="text-muted small">Flujos de trabajo y jobs listos para ejecutar</span>
       </div>
       <div class="card-body">
-        <div class="row g-3">
-          <div class="col-12 col-md-6 col-xl-3" v-for="stage in flowSummary" :key="stage.group">
-            <div class="border rounded-3 p-3 h-100 bg-white">
+        <div class="quick-actions-stack">
+          <!-- Flujos de trabajo: secuencias controladas de varios jobs -->
+          <div class="quick-actions-group">
+            <div class="d-flex flex-wrap gap-2">
+              <button
+                v-for="flow in WORK_FLOWS"
+                :key="flow.id"
+                class="btn btn-primary"
+                :disabled="activeFlow?.status === 'running'"
+                @click="runFlow(flow)"
+              >
+                <span v-if="activeFlow?.status === 'running' && activeFlow.id === flow.id" class="spinner-border spinner-border-sm me-1"></span>
+                <i v-else class="fas fa-diagram-project me-1"></i>
+                {{ activeFlow?.status === 'running' && activeFlow.id === flow.id ? 'Ejecutando flujo…' : flow.label }}
+              </button>
+            </div>
+
+            <div v-if="activeFlow" class="border rounded-3 p-3 mt-3 bg-white">
               <div class="d-flex justify-content-between align-items-center mb-2">
-                <strong class="small">{{ stage.group }}</strong>
-                <span class="badge text-bg-secondary">{{ stage.total }}</span>
+                <strong class="small">{{ activeFlow.label }}</strong>
+                <span class="badge" :class="flowStatusMeta(activeFlow.status).tone">
+                  <span v-if="activeFlow.status === 'running'" class="spinner-grow spinner-grow-sm me-1" role="status"></span>
+                  <i v-else :class="flowStatusMeta(activeFlow.status).icon" class="me-1"></i>
+                  {{ flowStatusMeta(activeFlow.status).label }}
+                </span>
               </div>
-              <div class="small text-muted">Previos listos: {{ stage.ready }}</div>
-              <div class="small text-muted">Pendientes: {{ stage.missing }}</div>
+              <ol class="list-group list-group-numbered small mb-0">
+                <li
+                  v-for="step in activeFlow.steps"
+                  :key="step.job_id"
+                  class="list-group-item d-flex justify-content-between align-items-center gap-2"
+                >
+                  <span>{{ jobLabel(step.job_id) }}</span>
+                  <span class="badge" :class="stepStatusMeta(step.status).tone" :title="step.error || ''">
+                    <span v-if="step.status === 'running'" class="spinner-grow spinner-grow-sm me-1" role="status"></span>
+                    <i v-else :class="stepStatusMeta(step.status).icon" class="me-1"></i>
+                    {{ stepStatusMeta(step.status).label }}
+                  </span>
+                </li>
+              </ol>
+              <div v-if="activeFlow.status === 'failed'" class="alert alert-danger py-2 small mt-2 mb-0">
+                El flujo se detuvo. Revisa el job marcado como "falló" o "cancelado" arriba para más detalle.
+              </div>
             </div>
           </div>
-        </div>
-        <div class="d-flex gap-2 flex-wrap mt-3 small">
-          <span class="badge text-bg-success">Previos listos</span>
-          <span class="badge text-bg-warning">Faltan previos</span>
-          <span class="badge text-bg-secondary">Sin previos</span>
-        </div>
-      </div>
-    </div>
 
-    <div class="card border-0 shadow-sm mb-4">
-      <div class="card-header bg-light border-bottom d-flex justify-content-between align-items-center">
-        <strong>Siguientes recomendados</strong>
-        <span class="text-muted small">Listos para ejecutar ahora</span>
-      </div>
-      <div class="card-body">
-        <div v-if="!recommendedJobs.length" class="text-muted small">
-          No hay jobs recomendados en este momento. Revisa si hay dependencias pendientes o jobs ejecutándose.
-        </div>
-        <div v-else class="d-flex flex-wrap gap-2">
-          <button
-            v-for="job in recommendedJobs"
-            :key="`rec-${job.job_id}`"
-            class="btn btn-sm btn-outline-primary"
-            :disabled="isActive(job)"
-            @click="openModal(job)"
-          >
-            <i class="fas fa-play me-1"></i>{{ job.name }}
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <div class="card border-0 shadow-sm mb-4">
-      <div class="card-header bg-light border-bottom d-flex justify-content-between align-items-center">
-        <strong>Relaciones de dependencia</strong>
-        <span class="text-muted small">Origen -> destino</span>
-      </div>
-      <div class="card-body p-0">
-        <div v-if="!filteredFlowEdges.length" class="text-muted small px-3 py-3">
-          No hay relaciones de dependencia para mostrar con el filtro actual.
-        </div>
-        <div v-else class="table-responsive">
-          <table class="table table-sm table-hover mb-0">
-            <thead class="table-light">
-              <tr>
-                <th>Etapa</th>
-                <th>Previa</th>
-                <th>Depende de</th>
-                <th>Estado previa</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="edge in filteredFlowEdges" :key="`${edge.from}->${edge.to}`">
-                <td class="small text-muted">{{ edge.flow_group || 'Sin grupo' }}</td>
-                <td>
-                  <div><strong>{{ edge.to_name }}</strong></div>
-                  <div class="small text-muted">{{ edge.to }}</div>
-                </td>
-                <td>
-                  <div>{{ edge.from_name }}</div>
-                  <div class="small text-muted">{{ edge.from }}</div>
-                </td>
-                <td>
-                  <span class="badge" :class="edge.ready ? 'text-bg-success' : 'text-bg-warning'">
-                    {{ edge.ready ? 'lista' : (edge.from_last_status || 'sin ejecucion') }}
-                  </span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          <!-- Jobs individuales: accesos directos a un solo job -->
+          <div class="quick-actions-group">
+            <div class="text-muted small text-uppercase fw-bold mb-2">Jobs individuales</div>
+            <div class="d-flex flex-column gap-2 align-items-start">
+              <button
+                v-for="quick in QUICK_JOBS"
+                :key="quick.job_id"
+                class="btn btn-outline-primary quick-job-btn"
+                :disabled="!findJob(quick.job_id) || isActive(findJob(quick.job_id))"
+                @click="openModal(findJob(quick.job_id))"
+              >
+                <i class="fas fa-play me-1"></i>{{ quick.label }}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -379,6 +471,21 @@ function isActive(job) {
         </span>
       </div>
 
+      <div
+        v-if="activeFlow?.status === 'running' && !showAllDuringFlow"
+        class="px-5 py-2 border-bottom bg-primary-subtle small d-flex justify-content-between align-items-center flex-wrap gap-2"
+      >
+        <span><i class="fas fa-filter me-1"></i>Mostrando solo los jobs del flujo en ejecución.</span>
+        <button class="btn btn-link btn-sm p-0" @click="showAllDuringFlow = true">Ver todos los jobs</button>
+      </div>
+      <div
+        v-else-if="activeFlow?.status === 'running' && showAllDuringFlow"
+        class="px-5 py-2 border-bottom bg-light small d-flex justify-content-between align-items-center flex-wrap gap-2"
+      >
+        <span><i class="fas fa-list me-1"></i>Mostrando todos los jobs mientras el flujo corre.</span>
+        <button class="btn btn-link btn-sm p-0" @click="showAllDuringFlow = false">Ver solo el flujo activo</button>
+      </div>
+
       <div class="px-5 py-3 border-bottom border-slate-200 d-flex gap-2 flex-wrap">
         <input v-model="search" class="form-control form-control-sm" placeholder="Buscar job..." style="max-width: 260px">
         <select v-model="statusFilter" class="form-select form-select-sm" style="max-width: 180px">
@@ -387,6 +494,7 @@ function isActive(job) {
           <option value="running">running</option>
           <option value="success">success</option>
           <option value="failed">failed</option>
+          <option value="cancelado">cancelado</option>
           <option value="dependency_ready">previos listos</option>
           <option value="dependency_missing">faltan previos</option>
         </select>
@@ -435,6 +543,16 @@ function isActive(job) {
                   <div v-if="job.dependency_note" class="small text-muted mt-1">{{ job.dependency_note }}</div>
                 </td>
                 <td class="text-end">
+                  <button
+                    v-if="isActive(job) && job.last_run_id"
+                    class="btn btn-sm btn-outline-danger me-1"
+                    :disabled="cancelling[job.job_id]"
+                    @click="cancelRun(job)"
+                  >
+                    <span v-if="cancelling[job.job_id]" class="spinner-border spinner-border-sm me-1"></span>
+                    <i v-else class="fas fa-ban me-1"></i>
+                    Cancelar
+                  </button>
                   <button class="btn btn-sm btn-primary" :disabled="isActive(job)" @click="openModal(job)">
                     <span v-if="running[job.job_id]" class="spinner-border spinner-border-sm me-1"></span>
                     <i v-else class="fas fa-play me-1"></i>
@@ -481,6 +599,15 @@ function isActive(job) {
               rows="3"
               autocomplete="off"
             ></textarea>
+            <div v-else-if="PARAM_DEFINITIONS[key]?.type === 'checkbox'" class="form-check">
+              <input
+                v-model="modalParams[key]"
+                type="checkbox"
+                class="form-check-input"
+                :id="`param-${key}`"
+              >
+              <label class="form-check-label small" :for="`param-${key}`">Enviar correo al finalizar</label>
+            </div>
             <input
               v-else
               v-model="modalParams[key]"
@@ -504,4 +631,20 @@ function isActive(job) {
     </div>
   </div>
 </template>
+
+<style scoped>
+/* Contenedor extensible para "Siguientes recomendados": cada grupo (flujos,
+   jobs individuales, y los que se agreguen despues) va en su propia fila. */
+.quick-actions-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.quick-job-btn {
+  width: 100%;
+  max-width: 360px;
+  text-align: left;
+}
+</style>
 

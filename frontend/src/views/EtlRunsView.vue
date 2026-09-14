@@ -1,20 +1,42 @@
 ﻿<script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, inject } from 'vue'
+import axios from 'axios'
 import { useEtlPolling, statusMeta, formatDate } from '@/composables/useEtlPolling'
+
+const toast = inject('toast', () => {})
 
 const runs = ref([])
 const search = ref('')
 const statusFilter = ref('')
 const pageSize = ref(25)
 const page = ref(1)
+const cancelling = ref({})
 
-const { countdown, pollNow } = useEtlPolling({
+const { countdown, pollError, pollNow } = useEtlPolling({
   pageType: 'runs',
   onRunsUpdate: (data) => {
     runs.value = data
     page.value = 1
   },
 })
+
+function canCancel(run) {
+  return run.status === 'queued' || run.status === 'running'
+}
+
+async function cancelRun(run) {
+  cancelling.value[run.run_id] = true
+  try {
+    const { data } = await axios.post(`/api/etl/runs/${run.run_id}/cancel`)
+    toast(data.message || 'Ejecución cancelada.', 'warning')
+    pollNow()
+  } catch (err) {
+    const msg = err.response?.data?.detail || 'No se pudo cancelar la ejecución.'
+    toast(msg, 'danger')
+  } finally {
+    cancelling.value[run.run_id] = false
+  }
+}
 
 const filtered = computed(() => {
   let data = runs.value
@@ -65,6 +87,11 @@ function shortError(errorValue) {
       </div>
     </div>
 
+    <div v-if="pollError" class="alert alert-warning py-2 small d-flex align-items-center gap-2">
+      <i class="fas fa-triangle-exclamation"></i>
+      Conexión inestable con el servidor: {{ pollError }}. Los datos en pantalla pueden estar desactualizados.
+    </div>
+
     <div class="card border-0 shadow-sm">
       <div class="card-header bg-light border-bottom d-flex justify-content-between align-items-center flex-wrap gap-2">
         <strong>Ultimas {{ runs.length }} ejecuciones</strong>
@@ -76,6 +103,7 @@ function shortError(errorValue) {
             <option value="failed">failed</option>
             <option value="running">running</option>
             <option value="queued">queued</option>
+            <option value="cancelado">cancelado</option>
           </select>
           <select v-model="pageSize" class="form-select form-select-sm" style="width:90px" @change="page=1">
             <option :value="10">10</option>
@@ -102,11 +130,12 @@ function shortError(errorValue) {
                 <th>Dur. (s)</th>
                 <th>Salida</th>
                 <th>Error</th>
+                <th class="text-end">Acción</th>
               </tr>
             </thead>
             <tbody>
               <tr v-if="!paginated.length">
-                <td colspan="8" class="text-center text-muted py-3">Sin resultados</td>
+                <td colspan="9" class="text-center text-muted py-3">Sin resultados</td>
               </tr>
               <tr v-for="run in paginated" :key="run.run_id">
                 <td>{{ run.run_id }}</td>
@@ -123,6 +152,18 @@ function shortError(errorValue) {
                 <td>{{ run.duration_seconds ?? '–' }}</td>
                 <td :title="run.output_path || ''">{{ shortPath(run.output_path) }}</td>
                 <td class="text-danger small" :title="run.error_message || ''">{{ shortError(run.error_message) }}</td>
+                <td class="text-end">
+                  <button
+                    v-if="canCancel(run)"
+                    class="btn btn-sm btn-outline-danger"
+                    :disabled="cancelling[run.run_id]"
+                    @click="cancelRun(run)"
+                  >
+                    <span v-if="cancelling[run.run_id]" class="spinner-border spinner-border-sm me-1"></span>
+                    <i v-else class="fas fa-ban me-1"></i>
+                    Cancelar
+                  </button>
+                </td>
               </tr>
             </tbody>
           </table>

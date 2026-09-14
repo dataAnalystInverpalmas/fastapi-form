@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from app.services.etl_jobs.bajas_exportado_generator import generate_bajas_exportado_reports
+from app.services.etl_jobs.compare_proyecciones_tika_generator import generate_compare_proyecciones_tika_report
 from app.services.etl_jobs.compare_tika_produccion_generator import generate_compare_tika_produccion_report
 from app.services.etl_jobs.comparar_picos_demanda_generator import generate_comparar_picos_demanda_report
+from app.services.etl_jobs.desviacion_produccion_generator import generate_desviacion_produccion
 from app.services.etl_jobs.dirigidas_generator import generate_dirigidas_analyzer
 from app.services.etl_jobs.excel_generator import generate_excel_file
 from app.services.etl_jobs.fusarium_pipeline_generator import generate_fusarium_pipeline
@@ -27,9 +29,11 @@ from app.services.etl_jobs.aportes_ponderados_problemas_generator import (
     exporta_aportes_ponderados_problemas_excel,
     generate_aportes_ponderados_problemas,
 )
+from app.services.etl_jobs.planos_proyeccion_generator import generate_planos_proyeccion
 from app.services.etl_jobs.process_siembras_generator import generate_process_siembras_report
 from app.services.etl_jobs.proyectar_rosas_generator import generate_proyectar_rosas_report
 from app.services.etl_jobs.siembras_teo_real_generator import generate_siembras_teo_real
+from app.services.etl_jobs.informes_jefes_area_generator import generate_informes_jefes_area
 
 __all__ = [
     "generate_excel_file",
@@ -44,6 +48,7 @@ __all__ = [
     "generate_quipus_vs_proy_artifacts",
     "generate_compare_tika_produccion_report",
     "generate_comparar_picos_demanda_report",
+    "generate_desviacion_produccion",
     "generate_dirigidas_analyzer",
     "generate_anomalias_lonas",
     "generate_pedidos_surtidos",
@@ -55,7 +60,9 @@ __all__ = [
     "generate_aportes_grados",
     "generate_aportes_ponderados_problemas",
     "exporta_aportes_ponderados_problemas_excel",
+    "generate_planos_proyeccion",
     "generate_process_siembras_report",
     "generate_proyectar_rosas_report",
     "generate_siembras_teo_real",
+    "generate_informes_jefes_area",
 ]

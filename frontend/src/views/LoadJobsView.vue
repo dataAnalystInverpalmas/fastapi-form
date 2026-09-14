@@ -10,7 +10,7 @@ const running = ref({})
 const search = ref('')
 const statusFilter = ref('')
 
-const { kpis, countdown, pollNow } = useEtlPolling({
+const { kpis, countdown, pollError, pollNow } = useEtlPolling({
   pageType: 'load',
   jobsApi: '/api/load/jobs',
   onJobsUpdate: (data) => {
@@ -49,7 +49,7 @@ async function runJob(jobId) {
   running.value[jobId] = true
   try {
     const { data } = await axios.post(`/api/etl/jobs/${jobId}/run`, { params: {} })
-    toast(`Job <strong>${jobId}</strong> enviado a la cola (run #${data.run_id}).`, 'info')
+    toast(`Job ${jobId} enviado a la cola (run #${data.run_id}).`, 'info')
     pollNow()
   } catch (err) {
     const msg = err.response?.data?.detail || 'Error al encolar el job.'
@@ -61,6 +61,23 @@ async function runJob(jobId) {
 
 function isActive(job) {
   return job.last_status === 'running' || job.last_status === 'queued' || running.value[job.job_id]
+}
+
+const cancelling = ref({})
+
+async function cancelRun(job) {
+  if (!job.last_run_id) return
+  cancelling.value[job.job_id] = true
+  try {
+    const { data } = await axios.post(`/api/etl/runs/${job.last_run_id}/cancel`)
+    toast(data.message || 'Ejecución cancelada.', 'warning')
+    pollNow()
+  } catch (err) {
+    const msg = err.response?.data?.detail || 'No se pudo cancelar la ejecución.'
+    toast(msg, 'danger')
+  } finally {
+    cancelling.value[job.job_id] = false
+  }
 }
 </script>
 
@@ -76,6 +93,11 @@ function isActive(job) {
           <i class="fas fa-clock-rotate-left me-1"></i>Ver historial
         </RouterLink>
       </div>
+    </div>
+
+    <div v-if="pollError" class="alert alert-warning py-2 small d-flex align-items-center gap-2">
+      <i class="fas fa-triangle-exclamation"></i>
+      Conexión inestable con el servidor: {{ pollError }}. Los datos en pantalla pueden estar desactualizados.
     </div>
 
     <div class="row g-3 mb-4">
@@ -136,6 +158,16 @@ function isActive(job) {
                 </td>
                 <td class="text-muted small">{{ formatDate(job.last_started_at) }}</td>
                 <td class="text-end">
+                  <button
+                    v-if="isActive(job) && job.last_run_id"
+                    class="btn btn-sm btn-outline-danger me-1"
+                    :disabled="cancelling[job.job_id]"
+                    @click="cancelRun(job)"
+                  >
+                    <span v-if="cancelling[job.job_id]" class="spinner-border spinner-border-sm me-1"></span>
+                    <i v-else class="fas fa-ban me-1"></i>
+                    Cancelar
+                  </button>
                   <button class="btn btn-sm btn-success" :disabled="isActive(job)" @click="runJob(job.job_id)">
                     <span v-if="running[job.job_id]" class="spinner-border spinner-border-sm me-1"></span>
                     <i v-else class="fas fa-upload me-1"></i>

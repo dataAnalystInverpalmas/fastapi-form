@@ -16,12 +16,11 @@ from app.services.etl.helpers import (
 
 
 def generate_bajas_exportado_reports() -> str:
-    date_dim = create_date_table("2010-01-01", "2026-11-02")
+    date_dim = create_date_table(settings.BAJAS_EXPORTADO_DATE_START, settings.BAJAS_EXPORTADO_DATE_END)
     date_dim_month = create_month_period_table(date_dim)
     date_dim = date_dim[["año", "mes", "fecha", "semana"]]
 
-    exportado_path = r"\\svrinverpalmas\produc\basetdinamica\exportado.dbf"
-    df_exp = read_dbf(exportado_path)
+    df_exp = read_dbf(settings.BAJAS_EXPORTADO_EXPORTADO_PATH)
     if df_exp.empty:
         raise RuntimeError("El archivo exportado.dbf no contiene datos.")
 
@@ -34,8 +33,11 @@ def generate_bajas_exportado_reports() -> str:
     df_exp["flor"] = df_exp["flor"].astype(str).str.strip()
     df_exp["expble"] = safe_int_series(df_exp["expble"])
 
-    docu_files = [f"docu{year}.dbf" for year in range(2010, 2027)]
-    df_docu = read_many_dbf(r"\\svrinverpalmas\produc\ld_bcult", docu_files)
+    docu_files = [
+        f"docu{year}.dbf"
+        for year in range(settings.BAJAS_EXPORTADO_DOCU_YEAR_START, settings.BAJAS_EXPORTADO_DOCU_YEAR_END + 1)
+    ]
+    df_docu = read_many_dbf(settings.BAJAS_EXPORTADO_DOCU_DIR, docu_files)
     if df_docu.empty:
         raise RuntimeError("No se encontraron datos en archivos docuYYYY.dbf.")
 
@@ -49,15 +51,15 @@ def generate_bajas_exportado_reports() -> str:
     df_docu = df_docu[df_docu["fecha"].notna()].copy()
 
     cond_tipo001_filtrado = (
-        (df_docu["tipo"].astype(str).str.strip() == "001")
-        & (df_docu["grado1"].astype(str).str.strip() != "NAL")
-        & (df_docu["grado2"].astype(str).str.strip() == "NAL")
+        (df_docu["tipo"].astype(str).str.strip() == settings.BAJAS_EXPORTADO_TIPO_FILTRADO)
+        & (df_docu["grado1"].astype(str).str.strip() != settings.BAJAS_EXPORTADO_GRADO_NAL)
+        & (df_docu["grado2"].astype(str).str.strip() == settings.BAJAS_EXPORTADO_GRADO_NAL)
     )
     cond_tipo010_todos = (
-        (df_docu["tipo"].astype(str).str.strip() == "010")
-        & (df_docu["grado2"].astype(str).str.strip() == "NAL")
+        (df_docu["tipo"].astype(str).str.strip() == settings.BAJAS_EXPORTADO_TIPO_TODOS)
+        & (df_docu["grado2"].astype(str).str.strip() == settings.BAJAS_EXPORTADO_GRADO_NAL)
     )
-    cond_flores = df_docu["flor"].astype(str).str.strip().isin(["CLA", "CM0", "ROC", "ROS"])
+    cond_flores = df_docu["flor"].astype(str).str.strip().isin(settings.BAJAS_EXPORTADO_FLOR_FILTER)
     mask = (cond_tipo001_filtrado | cond_tipo010_todos) & cond_flores
 
     df_filtered = df_docu.loc[mask].copy()

@@ -58,10 +58,10 @@ def generate_produccion_picos_report() -> str:
 
     df = df.copy()
     df["tipo"] = _normalize_tipo(df["tipo"])
-    df = df[df["tipo"].isin(["PT", "RE"])].copy()
+    df = df[df["tipo"].isin(settings.PRODUCCION_PICOS_TIPO_FILTER)].copy()
 
     df = df.rename(columns={"variedad": "nvariedad", "matas": "plantas"})
-    df.insert(3, "variedad", "0000")
+    df.insert(3, "variedad", settings.PRODUCCION_PICOS_VARIEDAD_PLACEHOLDER)
     df["finca"] = _normalize_finca(df["finca"])
 
     df["flor"] = df["flor"].astype(str).str.strip()
@@ -94,7 +94,7 @@ def generate_produccion_picos_report() -> str:
     df_end["semana"] = safe_int_series(df_end["semana"]).round().astype(int)
     df_end["aass"] = safe_int_series(df_end["aass"]).round().astype(int)
     df_end["pico"] = df_end["edad"].apply(pico)
-    df_end["cosecha"] = df_end["cosecha"].astype(str).str.strip().replace({"OHS24": "OH24S"})
+    df_end["cosecha"] = df_end["cosecha"].astype(str).str.strip().replace(settings.PRODUCCION_PICOS_COSECHA_CORRECTIONS)
 
     output_path = Path(normalize_path(settings.PRODUCCION_PICOS_OUTPUT_PATH))
     output_path.parent.mkdir(parents=True, exist_ok=True)

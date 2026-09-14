@@ -5,7 +5,7 @@ import { useEtlPolling, statusMeta, formatDate } from '@/composables/useEtlPolli
 const recentRuns = ref([])
 const runSearch = ref('')
 
-const { kpis, countdown } = useEtlPolling({
+const { kpis, countdown, pollError } = useEtlPolling({
   pageType: 'dashboard',
   onRunsUpdate: (runs) => {
     recentRuns.value = runs.slice(0, 10)
@@ -23,9 +23,8 @@ const quickActions = [
   { href: '/etl/jobs', icon: 'fas fa-gears', title: 'Jobs ETL', desc: 'Ejecutar procesos ETL', bg: 'bg-primary-subtle' },
   { href: '/load/jobs', icon: 'fas fa-upload', title: 'Cargas DBF', desc: 'Cargar archivos DBF a MySQL', bg: 'bg-success-subtle' },
   { href: '/consultar', icon: 'fas fa-search', title: 'Consultar DBF', desc: 'Explorar archivos DBF', bg: 'bg-info-subtle' },
-  { href: '/reporte-dinamico', icon: 'fas fa-table-columns', title: 'Reporte Dinamico', desc: 'Tablas pivot dinamicas', bg: 'bg-warning-subtle' },
+  { href: '/etl/params', icon: 'fas fa-sliders', title: 'Parámetros', desc: 'Configurar parámetros de jobs', bg: 'bg-warning-subtle' },
   { href: '/etl/runs', icon: 'fas fa-clock-rotate-left', title: 'Historial', desc: 'Ver ejecuciones pasadas', bg: 'bg-secondary-subtle' },
-  { href: '/consultas/procesos', icon: 'fas fa-magnifying-glass-chart', title: 'Procesos', desc: 'Consultas parametrizadas', bg: 'bg-danger-subtle' },
 ]
 
 const filteredRuns = computed(() => {
@@ -45,6 +44,10 @@ function getStatus(status) {
 
 <template>
   <div class="space-y-4">
+    <div v-if="pollError" class="alert alert-warning py-2 small d-flex align-items-center gap-2">
+      <i class="fas fa-triangle-exclamation"></i>
+      Conexión inestable con el servidor: {{ pollError }}. Los datos en pantalla pueden estar desactualizados.
+    </div>
     <div class="row g-3 mb-4">
       <div class="col-6 col-md-3" v-for="kpi in kpiCards" :key="kpi.key">
         <div class="card kpi-card border-0 shadow-sm h-100" :class="'kpi-' + kpi.key + (kpi.key === 'running' && kpis.running > 0 ? ' kpi-active' : '')">

@@ -179,7 +179,7 @@ def _load_arreglos_dirigidas() -> pd.DataFrame:
     df["nvariedad"] = df["nvariedad"].astype(str).str.strip()
 
     # Filter CLA y CM0
-    df = df[df["flor_a"].isin(["CLA", "CM0"])].copy()
+    df = df[df["flor_a"].isin(settings.DIRIGIDAS_FLOR_FILTER)].copy()
 
     # Filter por fecha mínima
     df["fecha"] = _normalize_date(df["fecha"])
@@ -596,9 +596,9 @@ def generate_dirigidas_analyzer(params: dict[str, Any] | None = None) -> str:
     muestras = _param_int("muestras", settings.DIRIGIDAS_MUESTRAS)
     tallos_min = _param_int("tallos_min", settings.DIRIGIDAS_TALLOS_MIN)
     lonas_semana = _param_int("lonas_semana", settings.DIRIGIDAS_LONAS_SEMANA)
-    camas_min = 4
-    tallos_x2 = 4000
-    tallos_x3 = 8000
+    camas_min = settings.DIRIGIDAS_CAMAS_MIN
+    tallos_x2 = settings.DIRIGIDAS_TALLOS_X2
+    tallos_x3 = settings.DIRIGIDAS_TALLOS_X3
 
     # Cargar datos
     df_plane, df_seasons, df_dates = _load_db_dirigidas()
@@ -608,9 +608,12 @@ def generate_dirigidas_analyzer(params: dict[str, Any] | None = None) -> str:
     # Filtro principal del notebook: flor/tipo/edad + ventana semanal.
     fecha_inicio_lunes, fecha_final, numero_semana = _current_week_window()
     df_proye = df_proy[
-        (df_proy["flor"].isin(["CLA", "CM0"]))
+        (df_proy["flor"].isin(settings.DIRIGIDAS_FLOR_FILTER))
         & (df_proy["tipo"] == "Proy_Aj")
-        & (((df_proy["edad"] > 40) & (df_proy["edad"] <= 58)) | (df_proy["edad"] <= 30))
+        & (
+            ((df_proy["edad"] > settings.DIRIGIDAS_EDAD_PICO_INICIO) & (df_proy["edad"] <= settings.DIRIGIDAS_EDAD_PICO_FIN))
+            | (df_proy["edad"] <= settings.DIRIGIDAS_EDAD_MIN)
+        )
     ].copy()
 
     df_filtrado = df_proye[
@@ -623,7 +626,7 @@ def generate_dirigidas_analyzer(params: dict[str, Any] | None = None) -> str:
     # Para dirigida PC (finca/flor) no aplica filtro de edad.
     # Se usa ventana semanal y tallos >= 0.
     df_pc_filtrado = df_proy[
-        (df_proy["flor"].isin(["CLA", "CM0"]))
+        (df_proy["flor"].isin(settings.DIRIGIDAS_FLOR_FILTER))
         & (df_proy["tipo"] == "Proy_Aj")
         & (df_proy["fecha"] > fecha_inicio_lunes)
         & (df_proy["fecha"] <= fecha_final)
@@ -652,7 +655,7 @@ def generate_dirigidas_analyzer(params: dict[str, Any] | None = None) -> str:
 
     df_proy_plane1["ferradica_num"] = pd.to_numeric(df_proy_plane1["ferradica"], errors="coerce")
     df_proy_plane2 = df_proy_plane1[
-        (df_proy_plane1["matas"] >= 960 * camas_min * 0.9)
+        (df_proy_plane1["matas"] >= settings.DIRIGIDAS_PLANTAS_POR_CAMA * camas_min * settings.DIRIGIDAS_TOLERANCIA_MATAS)
         & (df_proy_plane1["ferradica_num"] > numero_semana)
     ].copy()
 

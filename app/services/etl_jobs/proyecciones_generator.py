@@ -7,6 +7,7 @@ import pandas as pd
 from app.core.settings import settings
 from app.services.utils.dbf_reader import normalize_path
 from app.services.etl.helpers import (
+    dataframe_to_sql,
     execute_query,
     normalize_finca_series,
     read_many_dbf,
@@ -187,6 +188,9 @@ def generate_proyecciones_csv(debug: bool = False) -> str | tuple[str, dict[str,
     output_path = Path(normalize_path(settings.PROYECCIONES_OUTPUT_PATH))
     output_path.parent.mkdir(parents=True, exist_ok=True)
     df_final.to_csv(output_path, index=False)
+
+    dataframe_to_sql(df_final, "ld_proyecciones", if_exists="replace")
+
     audit["final_rows"] = int(len(df_final))
     audit["tipo_counts_final"] = df_final["tipo"].value_counts(dropna=False).to_dict()
     audit["final_tipo_max_fecha"] = _max_fecha_por_tipo(df_final)

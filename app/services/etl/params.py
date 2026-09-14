@@ -1,10 +1,26 @@
 ﻿from __future__ import annotations
 
+from datetime import datetime
 import json
 from typing import Any
 
 from app.services.etl.repository import get_last_job_params
 from app.services.etl.registry import get_job
+
+
+def _validate_fecha_range(normalized: dict[str, Any]) -> None:
+    """Si el job tiene fecha_inicio y fecha_fin, valida formato y orden cronologico."""
+    if "fecha_inicio" not in normalized or "fecha_fin" not in normalized:
+        return
+
+    try:
+        inicio = datetime.strptime(str(normalized["fecha_inicio"])[:10], "%Y-%m-%d")
+        fin = datetime.strptime(str(normalized["fecha_fin"])[:10], "%Y-%m-%d")
+    except ValueError as exc:
+        raise ValueError("fecha_inicio y fecha_fin deben tener formato YYYY-MM-DD.") from exc
+
+    if inicio > fin:
+        raise ValueError("fecha_inicio no puede ser mayor que fecha_fin.")
 
 
 def _split_list_string(value: str) -> list[str]:
@@ -143,6 +159,7 @@ def normalize_job_params(job_id: str, raw_params: dict[str, Any] | None) -> dict
 
         normalized[key] = _coerce_scalar(value, expected)
 
+    _validate_fecha_range(normalized)
     return normalized
 
 
@@ -173,4 +190,5 @@ def resolve_params_for_run(job_id: str, raw_params: dict[str, Any] | None) -> di
     if explicit_params:
         resolved.update(explicit_params)
 
+    _validate_fecha_range(resolved)
     return resolved

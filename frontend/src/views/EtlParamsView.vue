@@ -35,6 +35,10 @@ function isMultilineField(key, defVal) {
   return Array.isArray(defVal) && key.endsWith('_paths')
 }
 
+function isCheckboxField(key, defVal) {
+  return typeof defVal === 'boolean'
+}
+
 onMounted(async () => {
   try {
     const { data } = await axios.get('/api/etl/params')
@@ -53,6 +57,11 @@ onMounted(async () => {
   }
 })
 
+function datesInOrder(params) {
+  if (!params.fecha_inicio || !params.fecha_fin) return true
+  return new Date(params.fecha_inicio) <= new Date(params.fecha_fin)
+}
+
 async function saveParams(job) {
   saving.value[job.job_id] = true
   savedMsg.value[job.job_id] = null
@@ -61,6 +70,10 @@ async function saveParams(job) {
     const params = {}
     for (const [k, rawVal] of Object.entries(job.formParams)) {
       const defVal = job.default_params[k]
+      if (typeof defVal === 'boolean') {
+        params[k] = rawVal === true || rawVal === 'true'
+        continue
+      }
       const val = String(rawVal).trim()
       if (Array.isArray(defVal)) {
         params[k] = parseArrayValue(k, val, defVal)
@@ -70,9 +83,13 @@ async function saveParams(job) {
         params[k] = val
       }
     }
+    if (!datesInOrder(params)) {
+      toast('La fecha de inicio no puede ser mayor que la fecha fin.', 'danger')
+      return
+    }
     await axios.post(`/api/etl/params/${job.job_id}/save`, { params })
     savedMsg.value[job.job_id] = 'Parámetros guardados'
-    toast(`Parámetros de <strong>${job.name}</strong> guardados.`, 'success')
+    toast(`Parámetros de ${job.name} guardados.`, 'success')
     setTimeout(() => { savedMsg.value[job.job_id] = null }, 3000)
   } catch (err) {
     const msg = err.response?.data?.detail || 'Error al guardar.'
@@ -134,6 +151,15 @@ function getStatus(status) {
                   rows="3"
                   placeholder="Una ruta por línea"
                 ></textarea>
+                <div v-else-if="isCheckboxField(key, defVal)" class="form-check">
+                  <input
+                    v-model="job.formParams[key]"
+                    type="checkbox"
+                    class="form-check-input"
+                    :id="`param-${job.job_id}-${key}`"
+                  >
+                  <label class="form-check-label small" :for="`param-${job.job_id}-${key}`">Activado</label>
+                </div>
                 <input
                   v-else
                   v-model="job.formParams[key]"

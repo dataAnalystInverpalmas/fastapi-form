@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 from datetime import datetime, timedelta
+import logging
 from pathlib import Path
 import re
 import unicodedata
@@ -9,6 +10,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from app.core.mail import MailNotConfiguredError, send_email
 from app.core.settings import settings
 from app.services.utils.date_service import date_to_yyww, get_current_iso_week, get_dates_dimension, yyww_to_date
 from app.services.utils.dbf_reader import normalize_path
@@ -19,6 +21,10 @@ from app.services.etl.helpers import (
     safe_int_series,
     validate_columns,
 )
+
+logger = logging.getLogger(__name__)
+
+_CUMPLIMIENTO_EMAIL_SUBJECT = "Subir a cumplimiento de proyecciones"
 
 
 def _normalize_column_name(value: str) -> str:
@@ -581,8 +587,10 @@ def _get_recent_completed_weeks(
     df_fechas_lunes: pd.DataFrame,
     semana_actual: int,
     *,
-    count: int = 10,
+    count: int = None,
 ) -> list[int]:
+    if count is None:
+        count = settings.QUIPUS_VS_PROY_SEMANAS_RECIENTES
     semanas = (
         pd.to_numeric(df_fechas_lunes["aass"], errors="coerce")
         .dropna()
@@ -610,7 +618,7 @@ def _build_cumplimiento_resumen(
     semanas_recientes = _get_recent_completed_weeks(
         df_fechas_lunes=df_fechas_lunes,
         semana_actual=semana_actual,
-        count=10,
+        count=settings.QUIPUS_VS_PROY_SEMANAS_RECIENTES,
     )
     df_10 = resumen_base[resumen_base["sem_prod"].isin(semanas_recientes)].copy()
 
@@ -739,12 +747,58 @@ def _build_report_frames(
     return df_proy, df_real, df_quipus_report
 
 
+def _notify_cumplimiento_khipus(*, excel_path: Path, row_count: int, enviar_email: bool) -> None:
+    """Envía por correo el reporte filtrado de cumplimiento de Khipus.
+
+    Los destinatarios salen de settings.QUIPUS_CUMPLIMIENTO_EMAILS (grupo
+    "Quipus" en Ajustes). Nunca lanza excepción: el archivo en
+    EXCEL_OUTPUT_DIR ya quedó generado de todas formas, así que un problema
+    de envío se registra en el log pero no debe tumbar la corrida del ETL.
+    """
+    if not enviar_email:
+        logger.info("quipus_vs_proy: envío de correo omitido (enviar_email=False).")
+        return
+    if row_count == 0:
+        logger.info("quipus_vs_proy: sin filas con Cumple mayor a 0 tras filtrar; no se envía correo.")
+        return
+
+    destinatarios = [addr.strip() for addr in (settings.QUIPUS_CUMPLIMIENTO_EMAILS or []) if str(addr).strip()]
+    if not destinatarios:
+        logger.warning(
+            "quipus_vs_proy: enviar_email=True pero QUIPUS_CUMPLIMIENTO_EMAILS esta "
+            "vacio (Ajustes > Quipus). No se envia correo."
+        )
+        return
+
+    try:
+        send_email(
+            to=destinatarios,
+            subject=_CUMPLIMIENTO_EMAIL_SUBJECT,
+            body=(
+                f"{_CUMPLIMIENTO_EMAIL_SUBJECT}.\n\n"
+                "El archivo adjunto hay que subirlo en el sistema de cultivo, "
+                "menu Produccion, submenu Importar cumplimiento proyecciones.\n\n"
+                "Es importante hacerlo antes de actualizar el Excel donde "
+                "proyectan los agronomos.\n\n"
+                f"Se adjunta el archivo con los {row_count} registro(s) con Cumple% mayor "
+                "a 0 de las ultimas semanas."
+            ),
+            attachments=[excel_path],
+        )
+    except MailNotConfiguredError as exc:
+        logger.warning("quipus_vs_proy: no se envio el correo de cumplimiento: %s", exc)
+    except Exception:  # noqa: BLE001
+        logger.exception("quipus_vs_proy: fallo inesperado enviando el correo de cumplimiento.")
+
+
 def _persist_outputs(
     df_report: pd.DataFrame,
     df_mysql: pd.DataFrame,
     df_matas: pd.DataFrame,
     df_quipus_proyeccion: pd.DataFrame,
     df_resumen: pd.DataFrame,
+    *,
+    enviar_email: bool = True,
 ) -> str:
     quipus_output_path = Path(normalize_path(settings.QUIPUS_OUTPUT_PATH))
     quipus_output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -759,13 +813,25 @@ def _persist_outputs(
     with pd.ExcelWriter(excel_output_path, engine="openpyxl") as writer:
         df_mysql.to_excel(writer, index=False, sheet_name="datos")
 
+    # Solo se envía/queda en este reporte lo que realmente cumple: Cumple%
+    # mayor a cero y no vacío (filas sin dato de proyección/real quedan NA).
+    df_cumplimiento = df_resumen[
+        df_resumen["Cumple%"].notna() & (df_resumen["Cumple%"] > 0)
+    ].copy()
+
     outputs_summary_path = Path(normalize_path(settings.EXCEL_OUTPUT_DIR)) / "cumplimiento_khipus_10_semanas.xlsx"
     outputs_summary_path.parent.mkdir(parents=True, exist_ok=True)
     with pd.ExcelWriter(outputs_summary_path, engine="openpyxl") as writer:
-        df_resumen.to_excel(writer, index=False, sheet_name="cumplimiento_10s")
+        df_cumplimiento.to_excel(writer, index=False, sheet_name="cumplimiento_10s")
 
     dataframe_to_sql(df_mysql, "quipus_vs_proy", if_exists="replace")
     dataframe_to_sql(df_matas, "quipus_vs_proy_matas", if_exists="replace")
+
+    _notify_cumplimiento_khipus(
+        excel_path=outputs_summary_path,
+        row_count=len(df_cumplimiento),
+        enviar_email=enviar_email,
+    )
 
     return str(report_output_path)
 
@@ -773,6 +839,7 @@ def _persist_outputs(
 def generate_quipus_vs_proy_artifacts(params: dict[str, Any] | None = None) -> str:
     params = params or {}
     semana_actual = int(params.get("semana_actual") or get_current_iso_week())
+    enviar_email = bool(params.get("enviar_email", True))
 
     df_vari, df_cose, df_dup = _load_reference_data()
     df_fechas_lunes = _load_calendar_mondays()
@@ -831,4 +898,5 @@ def generate_quipus_vs_proy_artifacts(params: dict[str, Any] | None = None) -> s
         df_matas=df_matas,
         df_quipus_proyeccion=df_quipus_proyeccion,
         df_resumen=df_resumen,
+        enviar_email=enviar_email,
     )

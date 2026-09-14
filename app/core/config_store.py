@@ -18,8 +18,10 @@ def _group_for_setting(key: str) -> str:
         "APP_": "App",
         "DB_": "DB",
         "SMB_": "SMB",
+        "SMTP_": "Correo electrónico",
         "LOAD_": "Load",
         "PROYECCIONES_": "Proyecciones",
+        "PROYECTAR_ROSAS_": "Proyecciones",
         "PPROCESADO_": "Producto procesado",
         "PROCESS_": "Procesos",
         "QUIPUS_": "Quipus",
@@ -39,11 +41,14 @@ def _group_for_setting(key: str) -> str:
         "TIMEZONE": "General",
         "BASE_DIR": "General",
         "STATIC_DIR": "General",
-        "TEMPLATES_DIR": "General",
         "DEFAULT_": "General",
-        "MAX_LIMIT": "General",
         "DBF_": "DBF",
         "PRODUCCION_": "Producción",
+        "BAJAS_": "Bajas exportado",
+        "CORTES_": "Cortes lonas",
+        "INFORMES_": "Informes jefes de area",
+        "QUALITIES_": "Calidades",
+        "ALL_FARMS_CODE": "General",
     }
     for prefix, group in prefixes.items():
         if key.startswith(prefix):
@@ -70,6 +75,7 @@ def get_setting_groups() -> dict[str, list[str]]:
         "db",
         "dbf",
         "smb",
+        "correo_electrónico",
         "proyecciones",
         "producto_procesado",
         "curvas",
@@ -87,6 +93,9 @@ def get_setting_groups() -> dict[str, list[str]]:
         "procesos",
         "load",
         "produccion",
+        "bajas_exportado",
+        "cortes_lonas",
+        "informes_jefes_de_area",
         "etl",
     ]:
         if name in groups:
@@ -116,20 +125,28 @@ def get_config_overrides() -> dict[str, Any]:
 
 
 def save_config_overrides(overrides: dict[str, Any]) -> dict[str, Any]:
+    """Aplica y persiste overrides, fusionandolos con los ya guardados (un
+    guardado por grupo/formulario no debe borrar los overrides de otros
+    grupos). Lanza ValueError si alguna clave no existe en Settings, para que
+    la ruta la traduzca en un 422 en vez de ignorarla en silencio."""
     normalized: dict[str, Any] = {}
     for key, value in (overrides or {}).items():
         clean_key = _normalize_key(key)
-        if not clean_key or clean_key not in Settings.model_fields:
+        if not clean_key:
             continue
+        if clean_key not in Settings.model_fields:
+            raise ValueError(f"No existe la configuración '{clean_key}' en la aplicación.")
         normalized[clean_key] = value
 
-    if normalized:
-        settings.apply_overrides(normalized)
+    applied = settings.apply_overrides(normalized) if normalized else {}
+
+    merged = get_config_overrides()
+    merged.update(applied)
 
     _CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
     with _CONFIG_FILE.open("w", encoding="utf-8") as handle:
-        json.dump(normalized, handle, ensure_ascii=False, indent=2)
-    return normalized
+        json.dump(merged, handle, ensure_ascii=False, indent=2)
+    return applied
 
 
 def clear_config_overrides() -> None:

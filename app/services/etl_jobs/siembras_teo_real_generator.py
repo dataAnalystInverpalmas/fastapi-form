@@ -22,7 +22,12 @@ def _build_output_path() -> Path:
 
 
 def generate_siembras_teo_real() -> str:
-    select_query = """
+    programas = settings.SIEMBRAS_TEO_REAL_ANIOS
+    programas_sql = ", ".join(str(int(anio)) for anio in programas)
+    anio_inicio = min(programas)
+    flores_sql = ", ".join(f"'{flor}'" for flor in settings.SIEMBRAS_TEO_REAL_FLOR_FILTER)
+
+    select_query = f"""
     SELECT
         p.variedad,
         p.fecha_siembra,
@@ -33,19 +38,19 @@ def generate_siembras_teo_real() -> str:
     FROM program AS p
     INNER JOIN seasons AS s
         ON s.nombre = p.temporada_obj
-    WHERE programa IN (2024, 2025, 2026) AND estado = 1
+    WHERE programa IN ({programas_sql}) AND estado = 1
     GROUP BY variedad, fecha_siembra, cosecha, programa, tsiembra
     """
 
-    sql_variedades = """
+    sql_variedades = f"""
     SELECT
         v.nombre AS variedad, c.nombre AS color, c.orden
     FROM ld_variedades AS v
     LEFT JOIN ld_colores AS c ON c.codigo = v.codgcol
-    WHERE v.codflor IN ('CLA', 'CM0')
+    WHERE v.codflor IN ({flores_sql})
     """
 
-    sql_real = """
+    sql_real = f"""
     SELECT
         h.variedad,
         h.fecha_siembra,
@@ -56,7 +61,7 @@ def generate_siembras_teo_real() -> str:
     FROM hplane AS h
     INNER JOIN seasons AS s
         ON s.nombre = h.temporada
-    WHERE s.año >= 2024
+    WHERE s.año >= {anio_inicio}
     GROUP BY h.variedad, h.fecha_siembra, cosecha, tsiembra, programa
     """
 

@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -12,11 +13,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from app.core.settings import settings
-from app.routes.web import router as web_router
 from app.routes.api import router as api_router
 from app.routes.config import router as config_router
 from app.services.etl.runner import bootstrap_jobs, start_job
-from app.services.etl.repository import fail_all_stale_runs
+from app.services.etl.repository import count_running_jobs, fail_all_stale_runs
 from app.services.utils.network_health import ensure_mount_ready
 
 
@@ -31,6 +31,12 @@ _DAILY_JOBS = [
     "bajas_exportado",
 ]
 
+# Se corren en este orden (no en paralelo con el resto de _DAILY_JOBS) porque
+# desviacion_produccion consume el output de production_pipeline_curvas y el
+# runner no garantiza el orden de ejecucion entre jobs distintos.
+_SEQUENTIAL_DAILY_JOBS = ["production_pipeline_curvas", "desviacion_produccion"]
+_SEQUENTIAL_JOB_POLL_SECONDS = 5
+
 
 def _schedule_daily_job(job_id: str) -> None:
     def _runner() -> None:
@@ -44,6 +50,26 @@ def _schedule_daily_job(job_id: str) -> None:
         _runner,
         CronTrigger(hour=10, minute=0, timezone=_BOGOTA_TZ),
         id=f"{job_id}_daily",
+        replace_existing=True,
+    )
+
+
+def _schedule_sequential_daily_jobs(job_ids: list[str]) -> None:
+    def _runner() -> None:
+        for job_id in job_ids:
+            try:
+                start_job(job_id, triggered_by="scheduler")
+            except RuntimeError:
+                # Ya hay una corrida en progreso para este job; se omite y se
+                # sigue con el siguiente para no bloquear la cadena completa.
+                continue
+            while count_running_jobs(job_id) > 0:
+                time.sleep(_SEQUENTIAL_JOB_POLL_SECONDS)
+
+    _scheduler.add_job(
+        _runner,
+        CronTrigger(hour=10, minute=0, timezone=_BOGOTA_TZ),
+        id="_".join(job_ids) + "_daily",
         replace_existing=True,
     )
 
@@ -67,6 +93,7 @@ async def _lifespan(app: FastAPI):
     bootstrap_jobs()
     for _job_id in _DAILY_JOBS:
         _schedule_daily_job(_job_id)
+    _schedule_sequential_daily_jobs(_SEQUENTIAL_DAILY_JOBS)
     _schedule_stale_runs_sweeper()
     _scheduler.start()
     yield
@@ -105,14 +132,19 @@ def create_app() -> FastAPI:
         return {"status": "ok" if ok else "degraded", "message": message, "app_env": settings.APP_ENV}
 
     app.include_router(api_router)
-    app.include_router(web_router)
     app.include_router(config_router)
 
-    # SPA catch-all: sirve index.html del build de Vite para rutas no-API
+    # SPA catch-all: sirve index.html del build de Vite para cualquier ruta
+    # que no haya sido resuelta por los routers/mounts anteriores (Vue Router
+    # maneja el enrutamiento del lado del cliente a partir de ahi).
     _index = _FRONTEND_DIST / "index.html"
 
-    @app.get("/app/{path:path}", include_in_schema=False)
-    async def spa_catch_all(path: str) -> FileResponse:
+    @app.get("/", include_in_schema=False)
+    async def spa_root() -> FileResponse:
+        return FileResponse(str(_index))
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa_catch_all(full_path: str) -> FileResponse:
         return FileResponse(str(_index))
 
     return app

@@ -1,10 +1,11 @@
 ﻿"""Funciones compartidas entre generadores ETL."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable
 
+import mysql.connector
 import numpy as np
 import pandas as pd
 from dbfread import DBF
@@ -182,6 +183,36 @@ def dataframe_to_sql(df: pd.DataFrame, table_name: str, if_exists: str = "replac
     """Escribe un DataFrame completo a una tabla MySQL."""
     engine = _get_engine()
     df.to_sql(table_name, engine, index=False, if_exists=if_exists)
+
+
+_ERRNO_TABLE_DOES_NOT_EXIST = 1146
+
+
+def save_snapshot(df: pd.DataFrame, table_name: str, date_column: str, snapshot_date: date) -> None:
+    """Anexa `df` a una tabla historica fechada con `date_column`=`snapshot_date`.
+
+    Borra primero cualquier snapshot previo de esa misma fecha para que
+    reprocesar el mismo dia no duplique filas; no falla si la tabla aun no
+    existe (se crea automaticamente en el append).
+    """
+    snapshot = df.copy()
+    snapshot.insert(0, date_column, snapshot_date)
+
+    with db_connection() as connection:
+        cursor = connection.cursor()
+        try:
+            cursor.execute(
+                f"DELETE FROM `{table_name}` WHERE `{date_column}` = %s",
+                (snapshot_date,),
+            )
+            connection.commit()
+        except mysql.connector.errors.ProgrammingError as exc:
+            if exc.errno != _ERRNO_TABLE_DOES_NOT_EXIST:
+                raise
+        finally:
+            cursor.close()
+
+    dataframe_to_sql(snapshot, table_name, if_exists="append")
 
 
 def execute_query(sql: str):

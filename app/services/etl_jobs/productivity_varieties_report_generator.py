@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -9,6 +10,7 @@ from app.services.etl.helpers import (
     execute_query,
     normalize_finca_series,
     resolve_date_range_params,
+    save_snapshot,
     validate_columns,
 )
 from app.services.etl_jobs.fusarium_pipeline_generator import generate_fusarium_pipeline
@@ -45,7 +47,8 @@ QUALITY_COLUMNS = ["SEL", "FAN", "STD", "SHR", "NAL"]
 FUSARIUM_COLUMN = "Fusarium"
 CYCLE_COLUMN = "ciclo"
 PEAK_COLUMN = "Pico"
-ALL_FARMS_CODE = "000"
+ALL_FARMS_CODE = settings.ALL_FARMS_CODE  # codigo de "todas las fincas consolidadas"
+HISTORICO_TABLE = "productividades_variedades_historico"
 
 
 def _prepare_upstream_summaries(params: dict | None = None) -> dict[str, str]:
@@ -257,6 +260,8 @@ def generate_productivity_varieties_report(params: dict | None = None) -> str:
     df_report["finca"] = normalize_finca_series(df_report["finca"])
     df_report = df_report.rename(columns={"color": "gcolor", "variedad": "nvariedad"})
     df_report = df_report[["flor", "gcolor", "finca", CYCLE_COLUMN, "nvariedad", PEAK_COLUMN, "Flor Mata", *QUALITY_COLUMNS, FUSARIUM_COLUMN]].copy()
+
+    save_snapshot(df_report, HISTORICO_TABLE, "fecha_ejecucion", date.today())
 
     output_path = Path(normalize_path(settings.PRODUCTIVIDADES_OUTPUT_PATH))
     output_path.parent.mkdir(parents=True, exist_ok=True)

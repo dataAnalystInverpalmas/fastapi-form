@@ -223,6 +223,38 @@ def _process_salvamento(modelo_tika: int, tipo: str, df_dates: pd.DataFrame, df_
     return df[["fecha", "flor", "variedad", "color", "tallos", "tipo"]].copy()
 
 
+def _process_esquejes_futuros(modelo_tika: int, tipo: str, df_dates: pd.DataFrame, df_vari: pd.DataFrame) -> pd.DataFrame:
+    """Esquejes (siembra) proyectados por Tika para un modelo/escenario.
+
+    A diferencia de bajas/salvamento, flor/variedad/color vienen directo en
+    el archivo (no hay que completarlos desde df_vari); 'cantidad' usa '.'
+    como separador de miles, igual que el archivo de demanda.
+    """
+    path = Path(normalize_path(f"//svrinverpalmas/usuarios/Hilder/Data/tika/{modelo_tika}/esquejes_futuros.csv"))
+    if not path.exists():
+        raise FileNotFoundError(f"No existe esquejes_futuros.csv para modelo Tika {modelo_tika}: {path}")
+    df = pd.read_csv(path, thousands=".")
+    df = _normalize_columns(df)
+    validate_columns(df, {"semana", "flor", "variedad", "color", "cantidad"}, path.name)
+    df = pd.merge(
+        df.rename(columns={"semana": "aass"}),
+        df_dates[["fecha", "aass"]],
+        on="aass",
+        how="left",
+    ).drop(columns=["aass"])
+    df["flor"] = df["flor"].astype(str).str.strip().replace(FLOWER_MAP)
+    df["variedad"] = _normalize_text(df["variedad"])
+    df["color"] = _normalize_text(df["color"])
+    df["tallos"] = pd.to_numeric(df["cantidad"], errors="coerce").fillna(0)
+    df["tipo"] = tipo
+    df = (
+        df.groupby(["fecha", "flor", "variedad", "color", "tipo"], dropna=False)["tallos"]
+        .sum()
+        .reset_index()
+    )
+    return df[["fecha", "flor", "variedad", "color", "tallos", "tipo"]].copy()
+
+
 def _process_tika_projection(modelo_tika: int, tipo: str, df_dates: pd.DataFrame, df_vari: pd.DataFrame) -> pd.DataFrame:
     files = [
         Path(normalize_path(f"//svrinverpalmas/Usuarios/Hilder/Data/tika/{modelo_tika}/proy1.csv")),

@@ -13,6 +13,7 @@ STATUS_QUEUED = "queued"
 STATUS_RUNNING = "running"
 STATUS_SUCCESS = "success"
 STATUS_FAILED = "failed"
+STATUS_CANCELLED = "cancelado"
 
 
 def _column_exists(table_name: str, column_name: str) -> bool:
@@ -137,7 +138,14 @@ def list_jobs_with_state() -> list[dict[str, Any]]:
                     WHERE r.job_id = j.job_id
                     ORDER BY r.run_id DESC
                     LIMIT 1
-                ) AS last_started_at
+                ) AS last_started_at,
+                (
+                    SELECT r.run_id
+                    FROM etl_job_runs AS r
+                    WHERE r.job_id = j.job_id
+                    ORDER BY r.run_id DESC
+                    LIMIT 1
+                ) AS last_run_id
             FROM etl_jobs AS j
             WHERE j.is_active = 1
             ORDER BY j.name
@@ -237,6 +245,7 @@ def update_run_started(run_id: int) -> None:
 
 
 def update_run_success(run_id: int, output_path: str | None) -> None:
+    """Marca la corrida como exitosa, salvo que ya haya sido cancelada por el usuario."""
     now = get_bogota_now()
     with db_connection() as connection:
         cursor = connection.cursor()
@@ -249,15 +258,16 @@ def update_run_success(run_id: int, output_path: str | None) -> None:
                 duration_seconds = TIMESTAMPDIFF(SECOND, started_at, %s),
                 output_path = %s,
                 error_message = NULL
-            WHERE run_id = %s
+            WHERE run_id = %s AND status != %s
             """,
-            (STATUS_SUCCESS, now, now, output_path, run_id),
+            (STATUS_SUCCESS, now, now, output_path, run_id, STATUS_CANCELLED),
         )
         connection.commit()
         cursor.close()
 
 
 def update_run_failed(run_id: int, error_message: str) -> None:
+    """Marca la corrida como fallida, salvo que ya haya sido cancelada por el usuario."""
     now = get_bogota_now()
     with db_connection() as connection:
         cursor = connection.cursor()
@@ -269,12 +279,35 @@ def update_run_failed(run_id: int, error_message: str) -> None:
                 finished_at = %s,
                 duration_seconds = TIMESTAMPDIFF(SECOND, started_at, %s),
                 error_message = %s
-            WHERE run_id = %s
+            WHERE run_id = %s AND status != %s
             """,
-            (STATUS_FAILED, now, now, error_message[:2000], run_id),
+            (STATUS_FAILED, now, now, error_message[:2000], run_id, STATUS_CANCELLED),
         )
         connection.commit()
         cursor.close()
+
+
+def update_run_cancelled(run_id: int, message: str) -> bool:
+    """Marca una corrida 'queued'/'running' como cancelada. Devuelve False si ya habia terminado."""
+    now = get_bogota_now()
+    with db_connection() as connection:
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            UPDATE etl_job_runs
+            SET
+                status = %s,
+                finished_at = %s,
+                duration_seconds = TIMESTAMPDIFF(SECOND, started_at, %s),
+                error_message = %s
+            WHERE run_id = %s AND status IN (%s, %s)
+            """,
+            (STATUS_CANCELLED, now, now, message[:2000], run_id, STATUS_QUEUED, STATUS_RUNNING),
+        )
+        affected = int(cursor.rowcount or 0)
+        connection.commit()
+        cursor.close()
+    return affected > 0
 
 
 def count_by_status() -> dict[str, int]:

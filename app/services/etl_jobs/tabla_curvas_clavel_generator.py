@@ -44,8 +44,9 @@ def generate_tabla_curvas_clavel() -> str:
     df_processed["lunes"] = pd.to_datetime(df_processed["lunes"], errors="coerce")
     df_processed["lunes"] = df_processed["lunes"].apply(ajustar_a_jueves)
 
-    # Filtrar variedad 6522 (según notebook)
-    df_processed = df_processed.query("variedad != '6522'").copy()
+    # Filtrar variedad excluida (según notebook)
+    variedad_excluida = settings.TABLA_CURVAS_CLAVEL_VARIEDAD_EXCLUIDA
+    df_processed = df_processed.query("variedad != @variedad_excluida").copy()
 
     if df_processed.empty:
         raise RuntimeError("Después de aplicar filtros, no quedan datos para procesar.")

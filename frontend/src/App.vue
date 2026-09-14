@@ -25,14 +25,16 @@ const navItems = [
   { path: '/dashboard',           icon: 'fas fa-chart-line',              label: 'Dashboard' },
   { section: 'Datos' },
   { path: '/consultar',           icon: 'fas fa-search',                  label: 'Consultar DBF' },
-  { path: '/reporte-dinamico',    icon: 'fas fa-table-columns',           label: 'Reporte Dinámico' },
   { section: 'ETL' },
   { path: '/etl/jobs',            icon: 'fas fa-gears',                   label: 'Jobs ETL' },
+  { path: '/proyecciones/jobs',   icon: 'fas fa-chart-area',              label: 'Jobs Proyecciones' },
   { path: '/load/jobs',           icon: 'fas fa-upload',                  label: 'Cargas DBF' },
   { path: '/etl/params',          icon: 'fas fa-sliders',                 label: 'Parámetros' },
   { path: '/etl/runs',            icon: 'fas fa-clock-rotate-left',       label: 'Historial' },
-  { section: 'Consultas' },
-  { path: '/consultas/procesos',  icon: 'fas fa-magnifying-glass-chart',  label: 'Procesos' },
+  { section: 'Tika' },
+  { path: '/tika/jobs',           icon: 'fas fa-file-csv',                label: 'Cargas Tika' },
+  { section: 'Sistema' },
+  { path: '/config',              icon: 'fas fa-gear',                    label: 'Configuración' },
 ]
 
 const bgClass = { success: 'text-bg-success', danger: 'text-bg-danger', warning: 'text-bg-warning', info: 'text-bg-info', primary: 'text-bg-primary' }
@@ -99,7 +101,7 @@ const iconClass = { success: 'fa-circle-check', danger: 'fa-circle-xmark', warni
       <div class="d-flex">
         <div class="toast-body">
           <i class="fas me-2" :class="iconClass[t.type] || 'fa-circle-info'"></i>
-          <span v-html="t.message"></span>
+          <span>{{ t.message }}</span>
         </div>
         <button type="button" class="btn-close me-2" @click="toasts = toasts.filter(x => x.id !== t.id)"></button>
       </div>

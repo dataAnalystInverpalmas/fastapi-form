@@ -11,6 +11,7 @@ from app.services.etl.registry import get_job, list_jobs
 
 
 _executor: ThreadPoolExecutor | None = None
+_ACTIVE_FUTURES: dict[int, Any] = {}
 
 
 def _executor_instance() -> ThreadPoolExecutor:
@@ -61,6 +62,7 @@ def _run_job(run_id: int, job_id: str, params: dict[str, Any] | None = None) -> 
         etl_repository.update_run_failed(run_id, str(exc))
     finally:
         runner_executor.shutdown(wait=False, cancel_futures=True)
+        _ACTIVE_FUTURES.pop(run_id, None)
 
 
 def start_job(
@@ -83,5 +85,31 @@ def start_job(
         params=params,
     )
     etl_repository.upsert_last_job_params(job_id=job_id, params=params)
-    _executor_instance().submit(_run_job, run_id, job_id, params)
+    future = _executor_instance().submit(_run_job, run_id, job_id, params)
+    _ACTIVE_FUTURES[run_id] = future
     return run_id
+
+
+def cancel_job(run_id: int) -> tuple[bool, str]:
+    """Cancela una corrida en cola o solicita la cancelacion de una en curso.
+
+    Una corrida 'queued' que aun no ha iniciado se cancela por completo.
+    Una corrida 'running' no se puede interrumpir a mitad de ejecucion (el
+    hilo de Python sigue corriendo), pero se marca como cancelada de
+    inmediato para que la UI y el historial dejen de tratarla como activa;
+    el resultado del hilo en segundo plano se ignora cuando termine.
+    """
+    future = _ACTIVE_FUTURES.get(run_id)
+    if future is not None and future.cancel():
+        _ACTIVE_FUTURES.pop(run_id, None)
+        etl_repository.update_run_cancelled(run_id, "Cancelado por el usuario antes de iniciar.")
+        return True, "La ejecucion en cola fue cancelada."
+
+    updated = etl_repository.update_run_cancelled(
+        run_id,
+        "Cancelado por el usuario. Si el proceso ya habia iniciado, puede seguir "
+        "corriendo en segundo plano, pero su resultado sera ignorado.",
+    )
+    if not updated:
+        return False, "La ejecucion ya finalizo y no se puede cancelar."
+    return True, "Se marco la ejecucion como cancelada."

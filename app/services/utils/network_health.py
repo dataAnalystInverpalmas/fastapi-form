@@ -5,12 +5,16 @@ import os
 import subprocess
 from pathlib import Path
 
+from app.core.settings import settings
+
 logger = logging.getLogger(__name__)
 
 
 def ensure_mount_ready(mount_path: str | None = None) -> tuple[bool, str]:
-    target = mount_path or os.getenv("SMB_MOUNT_PATH", "/mnt/smb/produc")
+    target = mount_path or settings.SMB_MOUNT_PATH
     path = Path(target)
+    # ver nota en pathing.is_docker_runtime: APP_ENV es un hecho de
+    # infraestructura del proceso, se lee en vivo del entorno.
     app_env = os.getenv("APP_ENV", "local").lower()
 
     if not path.exists():

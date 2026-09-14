@@ -13,6 +13,7 @@ const STATUS_META = {
   failed: { tone: 'bg-danger', icon: 'fas fa-xmark', label: 'failed', loading: false },
   running: { tone: 'bg-primary', icon: 'fas fa-rotate', label: 'running', loading: true },
   queued: { tone: 'bg-warning', icon: 'fas fa-clock', label: 'queued', loading: false },
+  cancelado: { tone: 'bg-dark', icon: 'fas fa-ban', label: 'cancelado', loading: false },
   '': { tone: 'bg-secondary', icon: 'fas fa-minus', label: 'sin ejecuciones', loading: false },
 }
 
@@ -30,7 +31,7 @@ export function formatDate(iso) {
 
 /**
  * @param {Object} options
- * @param {'etl'|'load'|'runs'|'dashboard'} options.pageType
+ * @param {'etl'|'load'|'tika'|'proyecciones'|'runs'|'dashboard'} options.pageType
  * @param {string} [options.jobsApi]   URL de la API de jobs (para páginas etl/load)
  * @param {Function} [options.onJobsUpdate]  callback(jobs)
  * @param {Function} [options.onRunsUpdate]  callback(runs)
@@ -38,6 +39,7 @@ export function formatDate(iso) {
 export function useEtlPolling({ pageType, jobsApi, onJobsUpdate, onRunsUpdate } = {}) {
   const kpis = ref({ queued: 0, running: 0, success: 0, failed: 0 })
   const countdown = ref(0)
+  const pollError = ref(null)
   let pollTimer = null
   let countdownTimer = null
   let isPolling = false
@@ -64,7 +66,7 @@ export function useEtlPolling({ pageType, jobsApi, onJobsUpdate, onRunsUpdate } 
     try {
       const [kpisRes, jobsRes, runsRes] = await Promise.all([
         axios.get('/api/etl/kpis'),
-        (pageType === 'etl' || pageType === 'load') && jobsApi
+        (pageType === 'etl' || pageType === 'load' || pageType === 'tika' || pageType === 'proyecciones') && jobsApi
           ? axios.get(jobsApi)
           : Promise.resolve(null),
         (pageType === 'runs' || pageType === 'dashboard')
@@ -75,10 +77,13 @@ export function useEtlPolling({ pageType, jobsApi, onJobsUpdate, onRunsUpdate } 
       kpis.value = kpisRes.data
       if (jobsRes && onJobsUpdate) onJobsUpdate(jobsRes.data)
       if (runsRes && onRunsUpdate) onRunsUpdate(runsRes.data)
+      pollError.value = null
       scheduleNext(kpis.value)
     } catch (err) {
       console.warn('[useEtlPolling] poll error:', err)
-      scheduleNext({ queued: 0, running: 0, success: 0, failed: 0 })
+      pollError.value = err.response?.data?.detail || err.message || 'No se pudo actualizar. Reintentando...'
+      // Mantiene los ultimos datos conocidos en pantalla en vez de mostrar ceros.
+      scheduleNext(kpis.value)
     } finally {
       isPolling = false
     }
@@ -96,5 +101,5 @@ export function useEtlPolling({ pageType, jobsApi, onJobsUpdate, onRunsUpdate } 
     clearInterval(countdownTimer)
   })
 
-  return { kpis, countdown, poll, pollNow }
+  return { kpis, countdown, pollError, poll, pollNow }
 }

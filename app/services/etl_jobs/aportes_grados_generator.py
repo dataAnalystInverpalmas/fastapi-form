@@ -14,7 +14,9 @@ from app.services.etl.helpers import normalize_finca_series, resolve_date_range_
 # Consulta base a ld_producto_procesado
 # ---------------------------------------------------------------------------
 
-PROCESADO_QUERY = """
+def _build_procesado_query() -> str:
+    fuentes_sql = ", ".join(f"'{fuente}'" for fuente in settings.APORTES_GRADOS_FUENTE_FILTER)
+    return f"""
 SELECT
     fecha, flor, finca, bloque, nvari,
     fuente,
@@ -22,13 +24,10 @@ SELECT
     SUM(tallos) AS tallos
 FROM ld_producto_procesado
 WHERE fecha BETWEEN %s AND %s
-  AND fuente IN (
-      'Clasificacion',
-      'Dirigida', 'AjFito Cultivo',
-      'Dirigida Finca-Flor-Variedad', 'AjFito Cultivo DFFV'
-  )
+  AND fuente IN ({fuentes_sql})
 GROUP BY fecha, flor, finca, bloque, nvari, fuente, grado
 """
+
 
 DATES_QUERY = """
 SELECT fecha, aass FROM dates WHERE fecha BETWEEN %s AND %s
@@ -43,7 +42,7 @@ def _load_procesado(fecha_inicio: pd.Timestamp, fecha_fin: pd.Timestamp) -> pd.D
     with db_connection() as connection:
         cursor = connection.cursor()
         cursor.execute(
-            PROCESADO_QUERY,
+            _build_procesado_query(),
             (fecha_inicio.strftime("%Y-%m-%d"), fecha_fin.strftime("%Y-%m-%d")),
         )
         rows = cursor.fetchall()
@@ -76,13 +75,7 @@ def _map_fuente(df: pd.DataFrame) -> pd.DataFrame:
     Así, 'dirigida_cultivo' siempre incluye Dirigida y, cuando exista,
     también suma AjFito Cultivo.
     """
-    _MAP = {
-        "Clasificacion": "procesado",
-        "Dirigida": "solo dirigida",
-        "AjFito Cultivo": "dirigida_cultivo",
-        "Dirigida Finca-Flor-Variedad": "dirigida_pc",
-        "AjFito Cultivo DFFV": "dirigida_pc",
-    }
+    _MAP = settings.APORTES_GRADOS_FUENTE_MAP
     df = df.copy()
     df["fuente"] = df["fuente"].map(_MAP)
 
@@ -114,7 +107,7 @@ def _load_dates(fecha_inicio: pd.Timestamp, fecha_fin: pd.Timestamp) -> pd.DataF
 # ---------------------------------------------------------------------------
 
 def _build_aportes_export(df: pd.DataFrame, df_dates: pd.DataFrame) -> pd.DataFrame:
-    df = df[df["grado"] != "CB"].copy()
+    df = df[df["grado"] != settings.APORTES_GRADOS_GRADO_EXCLUIDO].copy()
     df = pd.merge(df, df_dates[["fecha", "aass"]], on="fecha", how="left")
     df = df.dropna(subset=["aass"]).copy()
     df["aass"] = df["aass"].astype(int)

@@ -42,17 +42,19 @@ def exporta_cortes_lonas_excel(fecha_inicio: str, fecha_fin: str) -> str:
     tallos_col = "tallos" if "tallos" in cols else "lonas"
     fecha_siembra_col = "fecha_siembra" if "fecha_siembra" in cols else "fsiemb"
 
+    flores_sql = ", ".join(f"'{flor}'" for flor in settings.CORTES_LONAS_FLOR_FILTER)
+
     joins_extra = ""
     where_flor = ""
     if "flor" in cols:
-        where_flor = "AND l.flor IN ('CLA', 'CM0')"
+        where_flor = f"AND l.flor IN ({flores_sql})"
     else:
         # Fallback para esquema antiguo: derivar flor desde ld_variedades por nombre de variedad.
         joins_extra = """
         LEFT JOIN ld_variedades AS v
             ON TRIM(v.nombre) = TRIM(l.variedad)
         """
-        where_flor = "AND v.codflor IN ('CLA', 'CM0')"
+        where_flor = f"AND v.codflor IN ({flores_sql})"
 
     sql = f"""
         SELECT
@@ -82,14 +84,11 @@ def exporta_cortes_lonas_excel(fecha_inicio: str, fecha_fin: str) -> str:
 
     df = pd.DataFrame(rows, columns=["variedad", "finca", "bloque", "semana", "semana_siembra", "cantidad"])
 
-    finca_map = {
-        "001": "INVERPALMAS",
-        "1": "INVERPALMAS",
-        1: "INVERPALMAS",
-        "002": "PALERMO",
-        "2": "PALERMO",
-        2: "PALERMO",
-    }
+    finca_map: dict = {}
+    for codigo, nombre in settings.CORTES_LONAS_FINCA_MAP.items():
+        finca_map[codigo] = nombre
+        finca_map[codigo.lstrip("0") or "0"] = nombre
+        finca_map[int(codigo)] = nombre
     if "finca" in df.columns:
         df["finca"] = df["finca"].map(lambda x: finca_map.get(x, finca_map.get(str(x).strip(), x)))
 
@@ -101,3 +100,12 @@ def exporta_cortes_lonas_excel(fecha_inicio: str, fecha_fin: str) -> str:
 
     df.to_excel(output_path, index=False, sheet_name="cortes")
     return str(output_path)
+
+
+def generate_cortes_lonas(params: dict | None = None) -> str:
+    params = params or {}
+    output_path = exporta_cortes_lonas_excel(
+        fecha_inicio=params.get("fecha_inicio"),
+        fecha_fin=params.get("fecha_fin"),
+    )
+    return f"xlsx:{output_path}"

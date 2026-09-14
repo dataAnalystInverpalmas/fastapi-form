@@ -17,7 +17,10 @@ def prepare_arre_dataframe(df: pd.DataFrame, variedades_catalog: pd.DataFrame | 
     df_export["tipo"] = df_export["tipo"].astype(str).str.strip().str.upper()
     df_export["fecha"] = pd.to_datetime(df_export["fecha"], errors="coerce")
     df_export = df_export[(df_export["tipo"] != "MA") & df_export["fecha"].notna()].copy()
-    df_export = df_export[(df_export["fecha"].dt.year >= 2020) & (df_export["fecha"].dt.year <= 2026)].copy()
+    df_export = df_export[
+        (df_export["fecha"].dt.year >= settings.LOAD_ARRE_ANIO_INICIO)
+        & (df_export["fecha"].dt.year <= settings.LOAD_ARRE_ANIO_FIN)
+    ].copy()
 
     df_export["finca"] = df_export["finca"].astype(str).str.strip()
     df_export["flor"] = df_export["flor"].astype(str).str.strip().str.upper()
@@ -59,15 +62,21 @@ def prepare_arre_dataframe(df: pd.DataFrame, variedades_catalog: pd.DataFrame | 
 
 
 def load_maestra_arre() -> str:
-    """Carga los archivos ARRE del directorio ld_bcult desde 2020 hasta 2026."""
-    filenames = [f"arre{year}.dbf" for year in range(2020, 2027)]
+    """Carga los archivos ARRE del directorio ld_bcult para el rango de años configurado."""
+    filenames = [
+        f"arre{year}.dbf"
+        for year in range(settings.LOAD_ARRE_ANIO_INICIO, settings.LOAD_ARRE_ANIO_FIN + 1)
+    ]
     df = read_many_dbf(settings.LOAD_LD_BCULT_DIR, filenames)
     if df.empty:
         raise RuntimeError("No se encontraron datos en los archivos arreYYYY.dbf.")
 
     df_export = prepare_arre_dataframe(df)
     if df_export.empty:
-        raise RuntimeError("No quedaron registros válidos después de filtrar tipo MA y rango 2020-2026.")
+        raise RuntimeError(
+            f"No quedaron registros válidos después de filtrar tipo MA y rango "
+            f"{settings.LOAD_ARRE_ANIO_INICIO}-{settings.LOAD_ARRE_ANIO_FIN}."
+        )
 
     dataframe_to_sql(df_export, "ld_arre", if_exists="replace")
     return "mysql:informes.ld_arre"
