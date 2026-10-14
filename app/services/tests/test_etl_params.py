@@ -10,7 +10,7 @@ class EtlParamsTests(unittest.TestCase):
         params = normalize_job_params(
             "resumir_curvas_usadas",
             {
-                "curve_paths": "//svrinverpalmas/usuarios/Hilder/Data/tika-curvas2026v2.csv\n//svrinverpalmas/usuarios/Hilder/Data/tika-curvas2027v2.csv",
+                "curve_paths": "//172.10.18.2/usuarios/Hilder/Data/tika-curvas2026v2.csv\n//172.10.18.2/usuarios/Hilder/Data/tika-curvas2027v2.csv",
                 "curve_years": "2026, 2027",
             },
         )
@@ -18,8 +18,8 @@ class EtlParamsTests(unittest.TestCase):
         self.assertEqual(
             params["curve_paths"],
             [
-                "//svrinverpalmas/usuarios/Hilder/Data/tika-curvas2026v2.csv",
-                "//svrinverpalmas/usuarios/Hilder/Data/tika-curvas2027v2.csv",
+                "//172.10.18.2/usuarios/Hilder/Data/tika-curvas2026v2.csv",
+                "//172.10.18.2/usuarios/Hilder/Data/tika-curvas2027v2.csv",
             ],
         )
         self.assertEqual(params["curve_years"], [2026, 2027])
@@ -39,7 +39,7 @@ class EtlParamsTests(unittest.TestCase):
             "resumir_curvas_usadas",
             {
                 "curve_paths": [
-                    "//svrinverpalmas/usuarios/Hilder/Data/tika-curvas2026v2.csv, //svrinverpalmas/usuarios/Hilder/Data/tika-curvas2027v3.csv"
+                    "//172.10.18.2/usuarios/Hilder/Data/tika-curvas2026v2.csv, //172.10.18.2/usuarios/Hilder/Data/tika-curvas2027v3.csv"
                 ],
                 "curve_years": [2026, 2027],
             },
@@ -48,8 +48,8 @@ class EtlParamsTests(unittest.TestCase):
         self.assertEqual(
             params["curve_paths"],
             [
-                "//svrinverpalmas/usuarios/Hilder/Data/tika-curvas2026v2.csv",
-                "//svrinverpalmas/usuarios/Hilder/Data/tika-curvas2027v3.csv",
+                "//172.10.18.2/usuarios/Hilder/Data/tika-curvas2026v2.csv",
+                "//172.10.18.2/usuarios/Hilder/Data/tika-curvas2027v3.csv",
             ],
         )
         self.assertEqual(params["curve_years"], [2026, 2027])

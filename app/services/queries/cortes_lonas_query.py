@@ -84,6 +84,9 @@ def exporta_cortes_lonas_excel(fecha_inicio: str, fecha_fin: str) -> str:
 
     df = pd.DataFrame(rows, columns=["variedad", "finca", "bloque", "semana", "semana_siembra", "cantidad"])
 
+    df = df[df["cantidad"] > 0].copy()
+    df["variedad"] = df["variedad"].str.replace(r"_$", "", regex=True)
+
     finca_map: dict = {}
     for codigo, nombre in settings.CORTES_LONAS_FINCA_MAP.items():
         finca_map[codigo] = nombre

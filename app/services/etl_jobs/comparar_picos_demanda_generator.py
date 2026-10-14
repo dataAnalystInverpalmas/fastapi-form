@@ -265,7 +265,7 @@ def _process_tika_picos(
     finca / bloque / cosecha / variedad / semana / edad / color / ciclo,
     fusiona con fechas y temporadas.  Devuelve un DataFrame con FINAL_COLUMNS.
     """
-    tika_dir = f"//svrinverpalmas/Usuarios/Hilder/Data/tika/{modelo}"
+    tika_dir = f"//172.10.18.2/Usuarios/Hilder/Data/tika/{modelo}"
     frames: list[pd.DataFrame] = []
     for fname in ("proy1.csv", "proy2.csv"):
         path = Path(normalize_path(f"{tika_dir}/{fname}"))

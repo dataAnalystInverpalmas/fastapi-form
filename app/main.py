@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import logging
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -15,16 +16,23 @@ from fastapi.responses import FileResponse
 from app.core.settings import settings
 from app.routes.api import router as api_router
 from app.routes.config import router as config_router
+from app.routes.data_science import router as data_science_router
 from app.services.etl.runner import bootstrap_jobs, start_job
 from app.services.etl.repository import count_running_jobs, fail_all_stale_runs
-from app.services.utils.network_health import ensure_mount_ready
+from app.services.utils.network_health import check_all_shares
+from app.services.utils.pathing import is_docker_runtime
 
 
 _BOGOTA_TZ = "America/Bogota"
+_logger = logging.getLogger(__name__)
+# Si el scheduler se retrasa (servidor ocupado o reiniciado justo a las 10:00)
+# el job se corre igual en vez de descartarse (el default de APScheduler es 1 s).
+_DAILY_MISFIRE_GRACE_SECONDS = 3600
 _scheduler = BackgroundScheduler(timezone=_BOGOTA_TZ)
 
 _DAILY_JOBS = [
     "load_maestra_lonas",
+    "load_maestra_arre",
     "load_tabla_descarta_curva",
     "load_tabla_metas",
     "load_tabla_nacional",
@@ -45,12 +53,16 @@ def _schedule_daily_job(job_id: str) -> None:
         except RuntimeError:
             # Ya hay una corrida en progreso; se omite esta ejecución
             pass
+        except Exception:  # noqa: BLE001
+            _logger.exception("No se pudo iniciar el job diario '%s'.", job_id)
 
     _scheduler.add_job(
         _runner,
         CronTrigger(hour=10, minute=0, timezone=_BOGOTA_TZ),
         id=f"{job_id}_daily",
         replace_existing=True,
+        misfire_grace_time=_DAILY_MISFIRE_GRACE_SECONDS,
+        coalesce=True,
     )
 
 
@@ -63,6 +75,9 @@ def _schedule_sequential_daily_jobs(job_ids: list[str]) -> None:
                 # Ya hay una corrida en progreso para este job; se omite y se
                 # sigue con el siguiente para no bloquear la cadena completa.
                 continue
+            except Exception:  # noqa: BLE001
+                _logger.exception("No se pudo iniciar el job diario '%s'.", job_id)
+                continue
             while count_running_jobs(job_id) > 0:
                 time.sleep(_SEQUENTIAL_JOB_POLL_SECONDS)
 
@@ -71,6 +86,8 @@ def _schedule_sequential_daily_jobs(job_ids: list[str]) -> None:
         CronTrigger(hour=10, minute=0, timezone=_BOGOTA_TZ),
         id="_".join(job_ids) + "_daily",
         replace_existing=True,
+        misfire_grace_time=_DAILY_MISFIRE_GRACE_SECONDS,
+        coalesce=True,
     )
 
 
@@ -128,11 +145,27 @@ def create_app() -> FastAPI:
 
     @app.get("/health", include_in_schema=False)
     async def health_check() -> dict[str, object]:
-        ok, message = ensure_mount_ready()
-        return {"status": "ok" if ok else "degraded", "message": message, "app_env": settings.APP_ENV}
+        shares_ok, shares = check_all_shares()
+        faltantes = [str(item["share"]) for item in shares if not item["ok"]]
+        # El runtime detectado manda sobre APP_ENV: is_docker_runtime() lee la
+        # variable del proceso, asi que un .env con APP_ENV=docker usado para
+        # correr en Windows no cambia como se resuelven las rutas.
+        runtime = "docker" if is_docker_runtime() else "local"
+        return {
+            "status": "ok" if shares_ok else "degraded",
+            "message": (
+                "Todos los shares accesibles"
+                if shares_ok
+                else f"Sin acceso a: {', '.join(faltantes)}"
+            ),
+            "runtime": runtime,
+            "app_env": settings.APP_ENV,
+            "shares": shares,
+        }
 
     app.include_router(api_router)
     app.include_router(config_router)
+    app.include_router(data_science_router)
 
     # SPA catch-all: sirve index.html del build de Vite para cualquier ruta
     # que no haya sido resuelta por los routers/mounts anteriores (Vue Router

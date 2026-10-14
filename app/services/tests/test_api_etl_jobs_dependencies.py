@@ -297,5 +297,135 @@ class ApiEtlJobsDependenciesTests(unittest.TestCase):
         self.assertEqual([job["job_id"] for job in proyecciones_jobs], ["planos_proyeccion"])
 
 
+    @patch("app.routes.api.list_jobs_with_state")
+    @patch("app.routes.api.list_jobs_from_catalog")
+    def test_proyecciones_listing_is_ordered_by_flow_step_not_by_name(
+        self,
+        mock_list_jobs_from_catalog,
+        mock_list_jobs_with_state,
+    ) -> None:
+        def build(job_id: str, name: str) -> ETLJobDefinition:
+            return ETLJobDefinition(
+                job_id=job_id,
+                name=name,
+                description="x",
+                allows_parallel=True,
+                timeout_seconds=10,
+                runner=lambda: "ok",
+            )
+
+        # Se pasan en orden alfabetico inverso al del flujo para comprobar que
+        # el orden viene de PROYECCIONES_JOB_ORDER y no del nombre.
+        mock_list_jobs_from_catalog.return_value = [
+            build("proyecciones_csv", "A Proyecciones a CSV"),
+            build("planos_proyeccion_hoja1", "B Subir Proyeccion"),
+            build("planos_proyeccion", "C Plano de Proyeccion"),
+            build("quipus_vs_proy", "D Quipus vs Proyecciones"),
+        ]
+        mock_list_jobs_with_state.return_value = []
+
+        jobs = api_list_proyecciones_jobs()
+
+        self.assertEqual(
+            [job["job_id"] for job in jobs],
+            ["quipus_vs_proy", "planos_proyeccion", "planos_proyeccion_hoja1", "proyecciones_csv"],
+        )
+        self.assertEqual([job["flow_step"] for job in jobs], [1, 2, 3, 4])
+
+    @patch("app.routes.api.list_jobs_with_state")
+    @patch("app.routes.api.list_jobs_from_catalog")
+    def test_shared_proyecciones_jobs_stay_in_main_etl_listing(
+        self,
+        mock_list_jobs_from_catalog,
+        mock_list_jobs_with_state,
+    ) -> None:
+        def build(job_id: str) -> ETLJobDefinition:
+            return ETLJobDefinition(
+                job_id=job_id,
+                name=job_id,
+                description="x",
+                allows_parallel=True,
+                timeout_seconds=10,
+                runner=lambda: "ok",
+            )
+
+        mock_list_jobs_from_catalog.return_value = [
+            build("quipus_vs_proy"),
+            build("proyecciones_csv"),
+            build("planos_proyeccion"),
+            build("planos_proyeccion_hoja1"),
+        ]
+        mock_list_jobs_with_state.return_value = []
+
+        etl_ids = {job["job_id"] for job in api_list_etl_jobs()}
+
+        # quipus_vs_proy y proyecciones_csv los consumen otros flujos: siguen
+        # visibles en ETL Jobs aunque tambien esten en el modulo Proyecciones.
+        self.assertEqual(etl_ids, {"quipus_vs_proy", "proyecciones_csv"})
+
+    @patch("app.routes.api.list_jobs_with_state")
+    @patch("app.routes.api.list_jobs_from_catalog")
+    def test_jobs_listing_exposes_manual_steps(
+        self,
+        mock_list_jobs_from_catalog,
+        mock_list_jobs_with_state,
+    ) -> None:
+        job = ETLJobDefinition(
+            job_id="planos_proyeccion_hoja1",
+            name="Subir Proyeccion",
+            description="x",
+            allows_parallel=True,
+            timeout_seconds=10,
+            runner=lambda: "ok",
+            manual_before=["Confirma el tipo"],
+            manual_after=["Borra la proyeccion por tipo y flor"],
+        )
+        mock_list_jobs_from_catalog.return_value = [job]
+        mock_list_jobs_with_state.return_value = []
+
+        payload = api_list_proyecciones_jobs()[0]
+
+        self.assertEqual(payload["manual_before"], ["Confirma el tipo"])
+        self.assertEqual(payload["manual_after"], ["Borra la proyeccion por tipo y flor"])
+
+    @patch("app.routes.api.list_jobs_with_state")
+    @patch("app.routes.api.list_jobs_from_catalog")
+    def test_jobs_listing_exposes_manual_steps_for_jobs_with_state(
+        self,
+        mock_list_jobs_from_catalog,
+        mock_list_jobs_with_state,
+    ) -> None:
+        job = ETLJobDefinition(
+            job_id="planos_proyeccion_hoja1",
+            name="Subir Proyeccion",
+            description="x",
+            allows_parallel=True,
+            timeout_seconds=10,
+            runner=lambda: "ok",
+            manual_before=["Confirma el tipo"],
+            manual_after=["Borra la proyeccion por tipo y flor"],
+        )
+        mock_list_jobs_from_catalog.return_value = [job]
+        mock_list_jobs_with_state.return_value = [
+            {
+                "job_id": "planos_proyeccion_hoja1",
+                "name": "Subir Proyeccion",
+                "description": "x",
+                "allows_parallel": 1,
+                "timeout_seconds": 10,
+                "is_active": 1,
+                "updated_at": None,
+                "last_status": "success",
+                "last_started_at": None,
+            }
+        ]
+
+        payload = api_list_proyecciones_jobs()[0]
+
+        self.assertEqual(payload["manual_before"], ["Confirma el tipo"])
+        self.assertEqual(payload["manual_after"], ["Borra la proyeccion por tipo y flor"])
+        self.assertEqual(payload["flow_step"], 3)
+
+
 if __name__ == "__main__":
     unittest.main()

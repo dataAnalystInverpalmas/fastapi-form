@@ -138,7 +138,13 @@ const WORK_FLOWS = [
   {
     id: 'flujo_produccion',
     label: 'Ejecutar flujo para producción',
-    steps: ['proyecciones_csv', 'quipus_vs_proy', 'produccion_picos', 'compare_tika_produccion_despachos', 'comparar_picos_demanda'],
+    // quipus_vs_proy NO va aqui: necesita que antes se descargue a mano la
+    // consulta de Curvas Khipus de Tika (tika-quipus<AASS>.csv), asi que sin
+    // ese archivo fallaba y frenaba el resto del flujo. Vive en el modulo
+    // Proyecciones (paso 1), que es donde se corre con sus pasos manuales.
+    // Ojo: compare_tika_produccion_despachos y comparar_picos_demanda lo
+    // declaran como dependencia, asi que usan el ultimo resultado disponible.
+    steps: ['proyecciones_csv', 'produccion_picos', 'compare_tika_produccion_despachos', 'comparar_picos_demanda'],
   },
   {
     id: 'flujo_informes',
@@ -266,9 +272,10 @@ async function openModal(job) {
     const { data } = await axios.get(`/api/etl/jobs/${job.job_id}/last-params`)
     const last = data.params || {}
     const defaults = job.default_params || {}
+    const fresh = data.fresh_date_defaults || {}
     const combined = {}
     for (const key of Object.keys(defaults)) {
-      const value = last[key] ?? defaults[key]
+      const value = fresh[key] ?? last[key] ?? defaults[key]
       combined[key] = formatArrayValue(key, value)
     }
     modalParams.value = combined
@@ -530,6 +537,9 @@ async function cancelRun(job) {
                     <i v-else :class="getStatus(job.last_status).icon" class="me-1"></i>
                     {{ getStatus(job.last_status).label }}
                   </span>
+                  <div v-if="job.last_error_message" class="small text-danger text-break mt-1" style="max-width: 22rem">
+                    {{ job.last_error_message }}
+                  </div>
                 </td>
                 <td class="text-muted small">{{ formatDate(job.last_started_at) }}</td>
                 <td>

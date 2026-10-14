@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import axios from 'axios'
 
-const ruta = ref(String(import.meta.env.VITE_DEFAULT_DBF_PATH || '\\\\svrinverpalmas\\produc\\LD_BCULT\\hijos2026.dbf'))
+const ruta = ref(String(import.meta.env.VITE_DEFAULT_DBF_PATH || '\\\\172.10.18.2\\produc\\LD_BCULT\\hijos2026.dbf'))
 const limite = ref(100)
 const data = ref(null)
 const error = ref(null)
@@ -72,7 +72,7 @@ async function consultar() {
                 v-model="ruta"
                 type="text"
                 class="form-control form-control-lg"
-                placeholder="Ej: \\svrinverpalmas\produc\LD_BCULT\archivo.dbf"
+                placeholder="Ej: \\172.10.18.2\produc\LD_BCULT\archivo.dbf"
                 required
               >
               <small class="block text-slate-500 text-xs mt-1.5">

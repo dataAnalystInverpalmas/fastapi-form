@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from app.core.settings import Settings, settings
+from app.core.settings import DERIVED_PATH_SETTINGS, Settings, settings
 
 _CONFIG_FILE = Path(__file__).resolve().parents[2] / ".app_config_overrides.json"
 
@@ -121,7 +121,11 @@ def get_config_overrides() -> dict[str, Any]:
             payload = json.load(handle)
     except (json.JSONDecodeError, OSError):
         return {}
-    return payload if isinstance(payload, dict) else {}
+    if not isinstance(payload, dict):
+        return {}
+    # Se descartan al leer, no solo al guardar: los archivos ya existentes
+    # traen BASE_DIR/STATIC_DIR con la ruta del equipo que los guardo.
+    return {key: value for key, value in payload.items() if key not in DERIVED_PATH_SETTINGS}
 
 
 def save_config_overrides(overrides: dict[str, Any]) -> dict[str, Any]:
@@ -136,6 +140,8 @@ def save_config_overrides(overrides: dict[str, Any]) -> dict[str, Any]:
             continue
         if clean_key not in Settings.model_fields:
             raise ValueError(f"No existe la configuración '{clean_key}' en la aplicación.")
+        if clean_key in DERIVED_PATH_SETTINGS:
+            continue
         normalized[clean_key] = value
 
     applied = settings.apply_overrides(normalized) if normalized else {}

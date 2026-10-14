@@ -46,8 +46,9 @@ onMounted(async () => {
       ...job,
       formParams: Object.fromEntries(
         Object.entries(job.default_params || {}).map(([k, defVal]) => {
+          const freshVal = (job.fresh_date_defaults || {})[k]
           const lastVal = (job.last_params || {})[k]
-          const v = lastVal !== undefined ? lastVal : defVal
+          const v = freshVal !== undefined ? freshVal : (lastVal !== undefined ? lastVal : defVal)
           return [k, formatArrayValue(k, v)]
         })
       ),
@@ -139,6 +140,9 @@ function getStatus(status) {
             </span>
           </div>
           <div class="card-body">
+            <div v-if="job.last_error_message" class="alert alert-danger small text-break py-2 mb-3">
+              <i class="fas fa-circle-exclamation me-1"></i>{{ job.last_error_message }}
+            </div>
             <p class="text-muted small mb-3">{{ job.description }}</p>
 
             <form @submit.prevent="saveParams(job)" class="row g-3">

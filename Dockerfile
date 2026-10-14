@@ -36,9 +36,18 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 COPY . .
 COPY --from=frontend-build /app/frontend/dist ./frontend/dist
 
-RUN mkdir -p /app/logs /mnt/smb/produc && chown -R appuser:appuser /app /mnt/smb/produc
+# Un directorio por share de SMB_SHARES (ver settings.SMB_SHARES y
+# scripts/entrypoint.sh). Se crean aqui y se ceden a appuser para que el
+# montaje quede con su uid/gid (SMB_OPTIONS usa uid=1000,gid=1000) y para
+# que la app pueda escribir en los shares de salida.
+RUN mkdir -p /app/logs /mnt/smb/produc /mnt/smb/Usuarios /mnt/smb/newfact \
+    && chown -R appuser:appuser /app /mnt/smb
 
-USER appuser
+# NO se fija USER appuser: el contenedor arranca como root porque montar CIFS
+# requiere CAP_SYS_ADMIN (docker-compose ya lo concede con cap_add) y un
+# usuario sin privilegios no puede hacerlo. scripts/entrypoint.sh monta los
+# shares y luego baja a appuser con setpriv para ejecutar uvicorn, asi que la
+# aplicacion sigue corriendo sin privilegios.
 
 EXPOSE 8000
 

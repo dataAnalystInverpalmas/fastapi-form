@@ -26,7 +26,7 @@ Aplicacion web fullstack para gestion y analisis de datos de produccion agricola
 - Python 3.11 (Docker usa `python:3.11-slim`)
 - Node.js 20.19+ o 22.12+
 - MySQL / MariaDB 5.7+
-- Acceso de red a `\\svrinverpalmas\...` (rutas UNC del servidor)
+- Acceso de red a `\\172.10.18.2\...` (rutas UNC del servidor)
 
 ---
 
@@ -235,7 +235,7 @@ fastapi-form/
 
 | Job ID | Descripcion |
 |--------|-------------|
-| `load_maestra_lonas` | Lonas 2024-2026 desde `lonas*.dbf` |
+| `load_maestra_lonas` | Lonas desde `lonas*.dbf`; borra y recarga solo los ultimos `LOAD_LONAS_ANIOS_RECARGA` anios (default 2), conserva los anteriores |
 | `load_maestra_variedades` | Variedades de flores |
 | `load_maestra_cosechas` | Tabla de cosechas |
 | `load_maestra_colores` | Colores de flores |

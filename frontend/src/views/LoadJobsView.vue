@@ -155,6 +155,9 @@ async function cancelRun(job) {
                     <i v-else :class="getStatus(job.last_status).icon" class="me-1"></i>
                     {{ getStatus(job.last_status).label }}
                   </span>
+                  <div v-if="job.last_error_message" class="small text-danger text-break mt-1" style="max-width: 22rem">
+                    {{ job.last_error_message }}
+                  </div>
                 </td>
                 <td class="text-muted small">{{ formatDate(job.last_started_at) }}</td>
                 <td class="text-end">

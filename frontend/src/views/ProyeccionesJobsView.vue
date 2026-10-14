@@ -25,7 +25,9 @@ const kpiCards = computed(() => [
 ])
 
 const filteredJobs = computed(() => {
-  let data = [...jobs.value].sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'es'))
+  // El flujo de proyecciones es una secuencia: se respeta flow_step (que
+  // define el backend en PROYECCIONES_JOB_ORDER), no el orden alfabetico.
+  let data = [...jobs.value].sort((a, b) => (a.flow_step || 99) - (b.flow_step || 99))
   if (statusFilter.value) {
     if (statusFilter.value === 'dependency_ready') {
       data = data.filter((job) => (job.dependency_status || 'none') === 'ready')
@@ -53,7 +55,10 @@ const running = ref({})
 
 // Agregar aqui definiciones de parametros a medida que se sumen mas jobs
 // de proyecciones con supports_params=true a este modulo.
-const PARAM_DEFINITIONS = {}
+const PARAM_DEFINITIONS = {
+  tipo: { label: 'Tipo de carga al sistema de cultivo', type: 'select', options: ['AJUSTE', 'INICIAL'] },
+  enviar_email: { label: 'Enviar correo', type: 'checkbox' },
+}
 
 function formatArrayValue(key, value) {
   if (!Array.isArray(value)) return value ?? ''
@@ -265,16 +270,39 @@ async function cancelRun(job) {
               </tr>
               <tr v-for="job in filteredJobs" :key="job.job_id">
                 <td>
+                  <span v-if="job.flow_step" class="badge text-bg-primary mb-1">Paso {{ job.flow_step }}</span>
+                  <br v-if="job.flow_step">
                   <code>{{ job.job_id }}</code><br>
                   <strong>{{ job.name }}</strong>
                 </td>
-                <td class="text-muted small">{{ job.description }}</td>
+                <td class="small" style="max-width: 520px">
+                  <div class="text-muted">{{ job.description }}</div>
+                  <div v-if="(job.manual_before || []).length" class="mt-2">
+                    <span class="fw-semibold text-warning-emphasis">
+                      <i class="fas fa-hand me-1"></i>Antes de ejecutar
+                    </span>
+                    <ul class="mb-0 ps-3 text-muted">
+                      <li v-for="(step, i) in job.manual_before" :key="`b-${i}`">{{ step }}</li>
+                    </ul>
+                  </div>
+                  <div v-if="(job.manual_after || []).length" class="mt-2">
+                    <span class="fw-semibold text-success-emphasis">
+                      <i class="fas fa-arrow-right me-1"></i>Despues de ejecutar
+                    </span>
+                    <ul class="mb-0 ps-3 text-muted">
+                      <li v-for="(step, i) in job.manual_after" :key="`a-${i}`">{{ step }}</li>
+                    </ul>
+                  </div>
+                </td>
                 <td>
                   <span class="badge" :class="getStatus(job.last_status).tone">
                     <span v-if="getStatus(job.last_status).loading" class="spinner-grow spinner-grow-sm me-1" role="status"></span>
                     <i v-else :class="getStatus(job.last_status).icon" class="me-1"></i>
                     {{ getStatus(job.last_status).label }}
                   </span>
+                  <div v-if="job.last_error_message" class="small text-danger text-break mt-1" style="max-width: 22rem">
+                    {{ job.last_error_message }}
+                  </div>
                 </td>
                 <td class="text-muted small">{{ formatDate(job.last_started_at) }}</td>
                 <td>
@@ -330,6 +358,16 @@ async function cancelRun(job) {
             Puedes ejecutar de todas formas, pero el resultado puede ser incompleto o fallar.
           </div>
 
+          <div
+            v-if="(modalJob?.manual_before || []).length"
+            class="alert alert-warning py-2 small"
+          >
+            <strong>Antes de ejecutar este paso:</strong>
+            <ul class="mb-0 ps-3">
+              <li v-for="(step, i) in modalJob.manual_before" :key="`mb-${i}`">{{ step }}</li>
+            </ul>
+          </div>
+
           <div v-if="modalJob && Object.keys(modalJob.default_params || {}).length === 0" class="text-muted small">
             Este job no requiere parámetros.
           </div>
@@ -343,8 +381,17 @@ async function cancelRun(job) {
                 class="form-check-input"
                 :id="`param-${key}`"
               >
-              <label class="form-check-label small" :for="`param-${key}`">Enviar correo al finalizar</label>
+              <label class="form-check-label small" :for="`param-${key}`">
+                {{ PARAM_DEFINITIONS[key]?.label || 'Enviar correo' }} al finalizar
+              </label>
             </div>
+            <select
+              v-else-if="PARAM_DEFINITIONS[key]?.type === 'select'"
+              v-model="modalParams[key]"
+              class="form-select"
+            >
+              <option v-for="opt in PARAM_DEFINITIONS[key].options" :key="opt" :value="opt">{{ opt }}</option>
+            </select>
             <input
               v-else
               v-model="modalParams[key]"

@@ -35,13 +35,21 @@ services:
     environment:
       APP_ENV: docker
       SMB_SERVER: ${SMB_SERVER:-172.10.18.2}
+      # Todos los shares que usa la app; entrypoint.sh monta cada uno en
+      # SMB_MOUNT_ROOT/<share>. Debe coincidir con settings.SMB_SHARES.
+      SMB_SHARES: ${SMB_SHARES:-produc,Usuarios,newfact}
       SMB_SHARE: ${SMB_SHARE:-produc}
       SMB_MOUNT_ROOT: ${SMB_MOUNT_ROOT:-/mnt/smb}
       SMB_MOUNT_PATH: ${SMB_MOUNT_PATH:-/mnt/smb/produc}
       SMB_USERNAME: ${SMB_USERNAME:-}
       SMB_PASSWORD: ${SMB_PASSWORD:-}
       SMB_DOMAIN: ${SMB_DOMAIN:-}
-      SMB_OPTIONS: ${SMB_OPTIONS:-username=,uid=1000,gid=1000,vers=3.0,iocharset=utf8,sec=ntlm}
+      # nocase: las rutas de settings.py mezclan mayusculas en las carpetas
+      # (produc/LD_BCULT y produc/ld_bcult), indistinto en Windows pero no en
+      # el cliente CIFS de Linux. vers=2.1: es el dialecto maximo del servidor
+      # (con 3.0 responde "Operation not supported"). Sin sec=: las
+      # credenciales van por archivo y sec=ntlm ya no lo acepta el kernel.
+      SMB_OPTIONS: ${SMB_OPTIONS:-uid=1000,gid=1000,vers=2.1,iocharset=utf8,nocase}
       DB_HOST: ${DB_HOST:-db}
       DB_PORT: 3306
       DB_USER: ${DB_USER:-appuser}
@@ -52,7 +60,11 @@ services:
     volumes:
       - ./logs:/app/logs
     cap_add:
+      # SYS_ADMIN: montar. DAC_READ_SEARCH: mount.cifs la activa al arrancar y
+      # Docker no la concede por defecto; sin ella falla con "Unable to apply
+      # new capability set." aunque el proceso sea root.
       - SYS_ADMIN
+      - DAC_READ_SEARCH
     security_opt:
       - seccomp:unconfined
     healthcheck:

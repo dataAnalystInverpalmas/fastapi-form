@@ -8,6 +8,7 @@ from fastapi import HTTPException
 
 from app.services.utils.dbf_reader import read_dbf_file
 from app.services.etl.params import normalize_job_params, resolve_params_for_run
+from app.services.etl.helpers import default_previous_year_week_range
 from app.services.etl.repository import (
     count_by_status,
     get_last_job_params,
@@ -15,11 +16,16 @@ from app.services.etl.repository import (
     list_recent_runs,
     upsert_last_job_params,
 )
-from app.services.etl.registry import list_jobs as list_jobs_from_catalog
+from app.services.etl.registry import get_job, list_jobs as list_jobs_from_catalog
 from app.services.etl.runner import cancel_job, start_job
 from pydantic import BaseModel
 
-from app.services.etl.constants import ETL_LOAD_EXTRA_IDS, PROYECCIONES_JOB_IDS
+from app.services.etl.constants import (
+    ETL_LOAD_EXTRA_IDS,
+    PROYECCIONES_JOB_IDS,
+    PROYECCIONES_JOB_ORDER,
+    PROYECCIONES_ONLY_JOB_IDS,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -93,7 +99,16 @@ def api_etl_kpis():
     return count_by_status()
 
 
-def _build_jobs_listing(include: Callable[[str], bool]) -> list[dict[str, Any]]:
+def _build_jobs_listing(
+    include: Callable[[str], bool],
+    step_order: tuple[str, ...] | None = None,
+) -> list[dict[str, Any]]:
+    """Lista los jobs del catalogo que pasan `include`, con su ultimo estado.
+
+    step_order numera los jobs (flow_step, 1-based) y los ordena por ese
+    numero en vez de alfabeticamente: lo usa el modulo Proyecciones, donde
+    los jobs son una secuencia y el orden es parte de la instruccion.
+    """
     catalog = {job.job_id: job for job in list_jobs_from_catalog()}
     status_by_job = {
         str(row.get("job_id", "")): row for row in list_jobs_with_state()
@@ -112,6 +127,8 @@ def _build_jobs_listing(include: Callable[[str], bool]) -> list[dict[str, Any]]:
                     **_serialize_row(status_row),
                     "supports_params": bool(job_def.supports_params),
                     "default_params": job_def.default_params or {},
+                    "manual_before": list(job_def.manual_before),
+                    "manual_after": list(job_def.manual_after),
                     **dependency_data,
                 }
             )
@@ -129,11 +146,22 @@ def _build_jobs_listing(include: Callable[[str], bool]) -> list[dict[str, Any]]:
                 "last_status": None,
                 "last_started_at": None,
                 "last_run_id": None,
+                "last_error_message": None,
                 "supports_params": bool(job_def.supports_params),
                 "default_params": job_def.default_params or {},
+                "manual_before": list(job_def.manual_before),
+                "manual_after": list(job_def.manual_after),
                 **dependency_data,
             }
         )
+
+    if step_order:
+        steps = {job_id: index + 1 for index, job_id in enumerate(step_order)}
+        for item in jobs:
+            item["flow_step"] = steps.get(str(item.get("job_id", "")))
+        # Un job del modulo sin puesto en step_order queda al final, no oculto.
+        jobs.sort(key=lambda item: (item.get("flow_step") or len(steps) + 1, str(item.get("name", "")).lower()))
+        return jobs
 
     jobs.sort(key=lambda item: str(item.get("name", "")).lower())
     return jobs
@@ -144,7 +172,9 @@ def _is_main_etl_job(job_id: str) -> bool:
         return False
     if job_id.startswith("tika_"):
         return False
-    if job_id in PROYECCIONES_JOB_IDS:
+    if job_id in PROYECCIONES_ONLY_JOB_IDS:
+        # quipus_vs_proy / proyecciones_csv tambien estan en el flujo de
+        # proyecciones, pero otros flujos los consumen: se dejan aqui tambien.
         return False
     return True
 
@@ -156,7 +186,10 @@ def api_list_etl_jobs():
 
 @router.get("/proyecciones/jobs")
 def api_list_proyecciones_jobs():
-    return _build_jobs_listing(lambda job_id: job_id in PROYECCIONES_JOB_IDS)
+    return _build_jobs_listing(
+        lambda job_id: job_id in PROYECCIONES_JOB_IDS,
+        step_order=PROYECCIONES_JOB_ORDER,
+    )
 
 
 @router.get("/etl/flow")
@@ -277,7 +310,9 @@ def api_cancel_run(run_id: int):
 
 @router.get("/etl/jobs/{job_id}/last-params")
 def api_last_job_params(job_id: str):
-    return {"job_id": job_id, "params": get_last_job_params(job_id)}
+    job = get_job(job_id)
+    fresh_defaults = default_previous_year_week_range() if job and job.weekly_dates else {}
+    return {"job_id": job_id, "params": get_last_job_params(job_id), "fresh_date_defaults": fresh_defaults}
 
 
 # ── ETL Params ───────────────────────────────────────────────────────────────
@@ -304,8 +339,10 @@ def api_list_etl_params():
                 "menu_type": "load" if job_id.startswith("load_") else "etl",
                 "default_params": job.default_params or {},
                 "last_params": last_params,
+                "fresh_date_defaults": default_previous_year_week_range() if job.weekly_dates else {},
                 "last_status": status.get("last_status") or "",
                 "last_started_at": status.get("last_started_at"),
+                "last_error_message": status.get("last_error_message"),
             }
         )
     jobs.sort(key=lambda j: j["name"])

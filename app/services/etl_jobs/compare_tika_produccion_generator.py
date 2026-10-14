@@ -44,6 +44,29 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _parse_quantity(series: pd.Series) -> pd.Series:
+    """Convierte cantidades exportadas por Tika sin importar el separador de miles.
+
+    Según el equipo que exporta, Tika escribe "1,514" o "1.514" para 1514
+    (incluso entre carpetas del mismo tipo de archivo). Un valor con grupos
+    exactos de 3 dígitos tras ',' o '.' se toma como miles; cualquier otro
+    ('914.0', '3,5') se toma como decimal.
+    """
+    text = series.astype("string").str.strip()
+    grouped = text.str.fullmatch(r"-?\d{1,3}(?:,\d{3})+") | text.str.fullmatch(r"-?\d{1,3}(?:\.\d{3})+")
+    text = text.where(~grouped.fillna(False), text.str.replace(r"[.,]", "", regex=True))
+    text = text.str.replace(",", ".", regex=False)
+    return pd.to_numeric(text, errors="coerce").fillna(0)
+
+
+def _read_tika_csv(path: Path) -> pd.DataFrame:
+    """Lee un CSV de Tika como texto; las cantidades se convierten con _parse_quantity."""
+    df = _normalize_columns(pd.read_csv(path, dtype=str, encoding="utf-8-sig"))
+    if "semana" in df.columns:
+        df["semana"] = safe_int_series(df["semana"]).astype(int)
+    return df
+
+
 def _normalize_text(series: pd.Series) -> pd.Series:
     return series.astype(str).str.strip().str.replace(" ", "_", regex=False)
 
@@ -87,15 +110,30 @@ def _load_dates_and_variedades() -> tuple[pd.DataFrame, pd.DataFrame]:
     return df_dates, df_vari
 
 
-def _resolve_modelos_tika(params: dict[str, Any] | None) -> tuple[int, int, int, int]:
+def _model_letter(index: int) -> str:
+    """0 -> A, 25 -> Z, 26 -> AA, 27 -> AB... (como columnas de Excel)."""
+    letters = ""
+    index += 1
+    while index:
+        index, rem = divmod(index - 1, 26)
+        letters = chr(ord("A") + rem) + letters
+    return letters
+
+
+def _resolve_modelos_tika(params: dict[str, Any] | None) -> dict[str, int]:
+    """Asigna una letra (A, B, C, ...) a cada modelo segun su posicion.
+
+    Siempre hay al menos 4 modelos (A-D, completados con los defaults);
+    los siguientes (E, F, G...) solo aparecen si se envian en modelos_tika.
+    """
     defaults = list(settings.COMPARE_TIKA_DEFAULT_MODELS)
     raw_values = list((params or {}).get("modelos_tika") or [])
     parsed = [int(value) for value in raw_values if str(value).strip()]
     if not parsed:
         parsed = defaults
     if len(parsed) < 4:
-        parsed = parsed + defaults[len(parsed):]
-    return tuple(parsed[:4])
+        parsed = parsed + defaults[len(parsed):4]
+    return {_model_letter(i): modelo for i, modelo in enumerate(parsed)}
 
 
 def _load_proyecciones_compare(df_vari: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -171,11 +209,10 @@ def _load_quipus_compare(df_dates: pd.DataFrame, df_vari: pd.DataFrame) -> pd.Da
 
 
 def _process_bajas_perdidas(modelo_tika: int, tipo: str, df_dates: pd.DataFrame, df_vari: pd.DataFrame) -> pd.DataFrame:
-    path = Path(normalize_path(f"//svrinverpalmas/usuarios/Hilder/Data/tika/{modelo_tika}/guarde.csv"))
+    path = Path(normalize_path(f"//172.10.18.2/usuarios/Hilder/Data/tika/{modelo_tika}/guarde.csv"))
     if not path.exists():
         raise FileNotFoundError(f"No existe guarde.csv para modelo Tika {modelo_tika}: {path}")
-    df = pd.read_csv(path, thousands=",")
-    df = _normalize_columns(df).fillna(0)
+    df = _read_tika_csv(path).rename(columns={"pérdidas": "perdidas"})
     validate_columns(df, {"semana", "variedad", "bajas", "perdidas"}, path.name)
     df = pd.merge(
         df.rename(columns={"semana": "aass"}),
@@ -183,7 +220,7 @@ def _process_bajas_perdidas(modelo_tika: int, tipo: str, df_dates: pd.DataFrame,
         on="aass",
         how="left",
     ).drop(columns=["aass"])
-    df["tallos"] = pd.to_numeric(df["bajas"], errors="coerce").fillna(0) + pd.to_numeric(df["perdidas"], errors="coerce").fillna(0)
+    df["tallos"] = _parse_quantity(df["bajas"]) + _parse_quantity(df["perdidas"])
     df["variedad"] = _normalize_text(df["variedad"])
     df = pd.merge(df, df_vari, on="variedad", how="left")
     df["tipo"] = tipo
@@ -196,11 +233,10 @@ def _process_bajas_perdidas(modelo_tika: int, tipo: str, df_dates: pd.DataFrame,
 
 
 def _process_salvamento(modelo_tika: int, tipo: str, df_dates: pd.DataFrame, df_vari: pd.DataFrame) -> pd.DataFrame:
-    path = Path(normalize_path(f"//svrinverpalmas/usuarios/Hilder/Data/tika/{modelo_tika}/salvamento.csv"))
+    path = Path(normalize_path(f"//172.10.18.2/usuarios/Hilder/Data/tika/{modelo_tika}/salvamento.csv"))
     if not path.exists():
         raise FileNotFoundError(f"No existe salvamento.csv para modelo Tika {modelo_tika}: {path}")
-    df = pd.read_csv(path, thousands=",")
-    df = _normalize_columns(df)
+    df = _read_tika_csv(path)
     if "itemdemanda" in df.columns and "item_demanda" not in df.columns:
         df = df.rename(columns={"itemdemanda": "item_demanda"})
     validate_columns(df, {"semana", "cantidad"}, path.name)
@@ -212,7 +248,7 @@ def _process_salvamento(modelo_tika: int, tipo: str, df_dates: pd.DataFrame, df_
         how="left",
     ).drop(columns=["aass"])
     df["variedad"] = _normalize_text(df[variedad_col])
-    df["tallos"] = pd.to_numeric(df["cantidad"], errors="coerce").fillna(0)
+    df["tallos"] = _parse_quantity(df["cantidad"])
     df = pd.merge(df, df_vari, on="variedad", how="left")
     df["tipo"] = tipo
     df = (
@@ -227,14 +263,12 @@ def _process_esquejes_futuros(modelo_tika: int, tipo: str, df_dates: pd.DataFram
     """Esquejes (siembra) proyectados por Tika para un modelo/escenario.
 
     A diferencia de bajas/salvamento, flor/variedad/color vienen directo en
-    el archivo (no hay que completarlos desde df_vari); 'cantidad' usa '.'
-    como separador de miles, igual que el archivo de demanda.
+    el archivo (no hay que completarlos desde df_vari).
     """
-    path = Path(normalize_path(f"//svrinverpalmas/usuarios/Hilder/Data/tika/{modelo_tika}/esquejes_futuros.csv"))
+    path = Path(normalize_path(f"//172.10.18.2/usuarios/Hilder/Data/tika/{modelo_tika}/esquejes_futuros.csv"))
     if not path.exists():
         raise FileNotFoundError(f"No existe esquejes_futuros.csv para modelo Tika {modelo_tika}: {path}")
-    df = pd.read_csv(path, thousands=".")
-    df = _normalize_columns(df)
+    df = _read_tika_csv(path)
     validate_columns(df, {"semana", "flor", "variedad", "color", "cantidad"}, path.name)
     df = pd.merge(
         df.rename(columns={"semana": "aass"}),
@@ -245,7 +279,7 @@ def _process_esquejes_futuros(modelo_tika: int, tipo: str, df_dates: pd.DataFram
     df["flor"] = df["flor"].astype(str).str.strip().replace(FLOWER_MAP)
     df["variedad"] = _normalize_text(df["variedad"])
     df["color"] = _normalize_text(df["color"])
-    df["tallos"] = pd.to_numeric(df["cantidad"], errors="coerce").fillna(0)
+    df["tallos"] = _parse_quantity(df["cantidad"])
     df["tipo"] = tipo
     df = (
         df.groupby(["fecha", "flor", "variedad", "color", "tipo"], dropna=False)["tallos"]
@@ -257,9 +291,9 @@ def _process_esquejes_futuros(modelo_tika: int, tipo: str, df_dates: pd.DataFram
 
 def _process_tika_projection(modelo_tika: int, tipo: str, df_dates: pd.DataFrame, df_vari: pd.DataFrame) -> pd.DataFrame:
     files = [
-        Path(normalize_path(f"//svrinverpalmas/Usuarios/Hilder/Data/tika/{modelo_tika}/proy1.csv")),
-        Path(normalize_path(f"//svrinverpalmas/Usuarios/Hilder/Data/tika/{modelo_tika}/proy2.csv")),
-        Path(normalize_path(f"//svrinverpalmas/Usuarios/Hilder/Data/tika/{modelo_tika}/proy3.csv"))
+        Path(normalize_path(f"//172.10.18.2/Usuarios/Hilder/Data/tika/{modelo_tika}/proy1.csv")),
+        Path(normalize_path(f"//172.10.18.2/Usuarios/Hilder/Data/tika/{modelo_tika}/proy2.csv")),
+        Path(normalize_path(f"//172.10.18.2/Usuarios/Hilder/Data/tika/{modelo_tika}/proy3.csv"))
     ]
     frames: list[pd.DataFrame] = []
     for path in files:
@@ -312,7 +346,7 @@ def _load_demanda(df_dates: pd.DataFrame, df_vari: pd.DataFrame) -> pd.DataFrame
 
 
 def generate_compare_tika_produccion_report(params: dict[str, Any] | None = None) -> str:
-    modelo_tika_a, modelo_tika_b, modelo_tika_c, modelo_tika_d = _resolve_modelos_tika(params)
+    modelos_tika = _resolve_modelos_tika(params)
     df_dates, df_vari = _load_dates_and_variedades()
 
     datos_re, datos_in, datos_aj, datos_pt = _load_proyecciones_compare(df_vari)
@@ -320,20 +354,18 @@ def generate_compare_tika_produccion_report(params: dict[str, Any] | None = None
     df_quipus = _load_quipus_compare(df_dates, df_vari)
     df_demanda = _load_demanda(df_dates, df_vari)
 
-    df_bajas_a = _process_bajas_perdidas(modelo_tika_a, "Bajas_A", df_dates, df_vari)
-    df_bajas_b = _process_bajas_perdidas(modelo_tika_b, "Bajas_B", df_dates, df_vari)
-    df_bajas_c = _process_bajas_perdidas(modelo_tika_c, "Bajas_C", df_dates, df_vari)
-    df_bajas_d = _process_bajas_perdidas(modelo_tika_d, "Bajas_D", df_dates, df_vari)
-
-    df_rota_a = _process_salvamento(modelo_tika_a, "Rota_A", df_dates, df_vari)
-    df_rota_b = _process_salvamento(modelo_tika_b, "Rota_B", df_dates, df_vari)
-    df_rota_c = _process_salvamento(modelo_tika_c, "Rota_C", df_dates, df_vari)
-    df_rota_d = _process_salvamento(modelo_tika_d, "Rota_D", df_dates, df_vari)
-
-    df_tika_a = _process_tika_projection(modelo_tika_a, "Tika_A", df_dates, df_vari)
-    df_tika_b = _process_tika_projection(modelo_tika_b, "Tika_B", df_dates, df_vari)
-    df_tika_c = _process_tika_projection(modelo_tika_c, "Tika_C", df_dates, df_vari)
-    df_tika_d = _process_tika_projection(modelo_tika_d, "Tika_D", df_dates, df_vari)
+    df_tika = [
+        _process_tika_projection(modelo, f"Tika_{letra}", df_dates, df_vari)
+        for letra, modelo in modelos_tika.items()
+    ]
+    df_rota = [
+        _process_salvamento(modelo, f"Rota_{letra}", df_dates, df_vari)
+        for letra, modelo in modelos_tika.items()
+    ]
+    df_bajas = [
+        _process_bajas_perdidas(modelo, f"Bajas_{letra}", df_dates, df_vari)
+        for letra, modelo in modelos_tika.items()
+    ]
 
     #cutoff = pd.Timestamp(settings.COMPARE_TIKA_D_CUTOFF_DATE)
     #df_tika_c = pd.concat([df_tika_d.query("fecha <= @cutoff"), df_tika_c], ignore_index=True)
@@ -346,19 +378,9 @@ def generate_compare_tika_produccion_report(params: dict[str, Any] | None = None
     frames = [
         df_despachos,
         df_demanda,
-
-        df_tika_a,
-        df_tika_b,
-        df_tika_c,
-        df_tika_d,
-        df_rota_a,
-        df_rota_b,
-        df_rota_c,
-        df_rota_d,
-        df_bajas_c,
-        df_bajas_d,
-        df_bajas_b,
-        df_bajas_a,
+        *df_tika,
+        *df_rota,
+        *df_bajas,
         datos_re,
         datos_in,
         datos_aj,

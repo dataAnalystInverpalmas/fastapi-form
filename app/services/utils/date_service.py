@@ -29,6 +29,22 @@ def yyww_to_date(yyww: int | str) -> pd.Timestamp:
     return pd.Timestamp(datetime.fromisocalendar(year, week, 4))
 
 
+def yyww_series_to_date(values: pd.Series) -> pd.Series:
+    """Version vectorizada de yyww_to_date; valores invalidos quedan en NaT.
+
+    Acepta YYWW como numero o texto (ej. 2611, "2611", 2604.0).
+    """
+    tokens = pd.to_numeric(values, errors="coerce").astype("Int64").astype(str).str.zfill(4)
+
+    def _convert(token: str) -> pd.Timestamp:
+        try:
+            return yyww_to_date(token)
+        except ValueError:
+            return pd.NaT
+
+    return pd.to_datetime(tokens.map(_convert))
+
+
 def date_to_yyww(value: date | datetime | pd.Timestamp) -> int:
     """Convierte fecha al identificador ISO YYWW."""
     ts = pd.Timestamp(value)
@@ -39,6 +55,16 @@ def date_to_yyww(value: date | datetime | pd.Timestamp) -> int:
 def get_current_iso_week() -> int:
     """Retorna la semana ISO actual en formato YYWW."""
     return date_to_yyww(pd.Timestamp.today())
+
+
+def get_next_week_thursday() -> pd.Timestamp:
+    """Jueves de la semana ISO siguiente a la actual (hora de Bogota).
+
+    Sirve de fecha de corte para filtrar semanas YYWW convertidas con
+    yyww_to_date/yyww_series_to_date (que tambien usan el jueves).
+    """
+    today = pd.Timestamp(get_bogota_now().date())
+    return ajustar_a_jueves(today) + pd.Timedelta(days=7)
 
 
 def get_bogota_now() -> datetime:

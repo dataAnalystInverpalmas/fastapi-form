@@ -18,3 +18,10 @@ class ETLJobDefinition:
     dependency_note: str | None = None
     dependency_group: str | None = None
     flow_group: str | None = None
+    weekly_dates: bool = False
+    # Pasos manuales que rodean al job (descargar una consulta de Tika,
+    # subir un archivo al sistema de cultivo, borrar datos antes de cargar...).
+    # El modulo Proyecciones los muestra en el listado y en el modal de
+    # ejecucion para que el operador no dependa de recordarlos.
+    manual_before: list[str] = field(default_factory=list)
+    manual_after: list[str] = field(default_factory=list)

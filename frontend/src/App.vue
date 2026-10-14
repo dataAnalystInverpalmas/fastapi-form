@@ -33,6 +33,12 @@ const navItems = [
   { path: '/etl/runs',            icon: 'fas fa-clock-rotate-left',       label: 'Historial' },
   { section: 'Tika' },
   { path: '/tika/jobs',           icon: 'fas fa-file-csv',                label: 'Cargas Tika' },
+  { section: 'Ciencia de datos' },
+  { path: '/ciencia-datos',                        icon: 'fas fa-flask',                   label: 'Proyectos', exact: true },
+  { path: '/ciencia-datos/precision-proyecciones', icon: 'fas fa-bullseye',                label: 'Precisión proyecciones' },
+  { path: '/ciencia-datos/pronostico-produccion',  icon: 'fas fa-chart-line',              label: 'Pronóstico producción' },
+  { path: '/ciencia-datos/calidad-anomalias',      icon: 'fas fa-triangle-exclamation',    label: 'Alertas de calidad' },
+  { path: '/ciencia-datos/riesgo-fusarium',        icon: 'fas fa-virus',                   label: 'Riesgo fusarium' },
   { section: 'Sistema' },
   { path: '/config',              icon: 'fas fa-gear',                    label: 'Configuración' },
 ]
@@ -58,7 +64,7 @@ const iconClass = { success: 'fa-circle-check', danger: 'fa-circle-xmark', warni
             v-else
             :to="item.path"
             class="nav-item"
-            :class="{ active: route.path === item.path || (item.path !== '/dashboard' && route.path.startsWith(item.path)) }"
+            :class="{ active: route.path === item.path || (!item.exact && item.path !== '/dashboard' && route.path.startsWith(item.path)) }"
           >
             <i :class="item.icon"></i><span>{{ item.label }}</span>
           </RouterLink>

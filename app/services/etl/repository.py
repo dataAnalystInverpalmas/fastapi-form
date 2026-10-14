@@ -125,28 +125,17 @@ def list_jobs_with_state() -> list[dict[str, Any]]:
                 j.timeout_seconds,
                 j.is_active,
                 j.updated_at,
-                (
-                    SELECT r.status
-                    FROM etl_job_runs AS r
-                    WHERE r.job_id = j.job_id
-                    ORDER BY r.run_id DESC
-                    LIMIT 1
-                ) AS last_status,
-                (
-                    SELECT r.started_at
-                    FROM etl_job_runs AS r
-                    WHERE r.job_id = j.job_id
-                    ORDER BY r.run_id DESC
-                    LIMIT 1
-                ) AS last_started_at,
-                (
-                    SELECT r.run_id
-                    FROM etl_job_runs AS r
-                    WHERE r.job_id = j.job_id
-                    ORDER BY r.run_id DESC
-                    LIMIT 1
-                ) AS last_run_id
+                r.status AS last_status,
+                r.started_at AS last_started_at,
+                r.run_id AS last_run_id,
+                r.error_message AS last_error_message
             FROM etl_jobs AS j
+            LEFT JOIN etl_job_runs AS r
+                ON r.run_id = (
+                    SELECT MAX(r2.run_id)
+                    FROM etl_job_runs AS r2
+                    WHERE r2.job_id = j.job_id
+                )
             WHERE j.is_active = 1
             ORDER BY j.name
             """

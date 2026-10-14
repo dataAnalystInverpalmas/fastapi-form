@@ -23,6 +23,7 @@ from app.services.etl_jobs import (
     generate_aportes_grados,
     generate_aportes_ponderados_problemas,
     generate_bajas_exportado_reports,
+    generate_balance_masas,
     generate_compare_proyecciones_tika_report,
     generate_compare_tika_produccion_report,
     generate_comparar_picos_demanda_report,
@@ -38,6 +39,7 @@ from app.services.etl_jobs import (
     generate_producto_procesado_csv,
     generate_producto_procesado_historico_csv,
     generate_planos_proyeccion,
+    generate_planos_proyeccion_hoja1,
     generate_process_guarde,
     generate_process_siembras_report,
     generate_proyectar_rosas_report,
@@ -105,6 +107,14 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             depends_on=["load_maestra_variedades", "load_maestra_colores"],
             dependency_group="Producción",
             flow_group="02 - Fuentes y Base",
+            manual_before=[
+                "Genera primero en el sistema de cultivo la consulta de proyecciones, para que los "
+                "Proyecciones*.dbf que lee este job queden con la proyeccion recien cargada.",
+            ],
+            manual_after=[
+                "Actualiza los Excel que correspondan con proyecciones.csv. Con esto cierra el ciclo semanal de "
+                "proyecciones.",
+            ],
         ),
         ETLJobDefinition(
             job_id="produccion_picos",
@@ -132,7 +142,13 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
         ETLJobDefinition(
             job_id="quipus_vs_proy",
             name="Quipus vs Proyecciones",
-            description="Genera quipus.csv, quipus_vs_proy.csv, datos.xlsx y tablas MySQL quipus_vs_proy / quipus_vs_proy_matas.",
+            description=(
+                "Genera quipus.csv, quipus_vs_proy.csv, datos.xlsx y tablas MySQL quipus_vs_proy / "
+                "quipus_vs_proy_matas, y envia por correo el cumplimiento de las ultimas 10 semanas de "
+                "Khipus. Lee la consulta semanal de Curvas Khipus descargada de Tika "
+                "(tika-quipus<AASS>.csv); datos.xlsx es la fuente de la proyeccion que arma despues el "
+                "paso 3 (Subir Proyeccion)."
+            ),
             allows_parallel=True,
             timeout_seconds=2400,
             runner=generate_quipus_vs_proy_artifacts,
@@ -141,6 +157,21 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             depends_on=["proyecciones_csv"],
             dependency_group="Producción",
             flow_group="03 - Derivados Semanales",
+            manual_before=[
+                "En Tika > Curvas Khipus genera la consulta del rango de semanas vigente (hoy 2601 a 2705) "
+                "y descarga el CSV.",
+                r"Guarda ese CSV en la carpeta QUIPUS_TIKA_DIR (\\172.10.18.2\Usuarios\Hilder\Data\tika\quipus) "
+                "como tika-quipus<AASS>.csv. OJO con la convencion: los 4 ultimos caracteres del nombre son "
+                "AASS = año y semana ISO actual (ej. tika-quipus2638.csv para la semana 38 de 2026). Si el "
+                "archivo ya existe, reemplazalo.",
+            ],
+            manual_after=[
+                "Del correo de cumplimiento de las ultimas 10 semanas de Khipus, sube el archivo al sistema "
+                "de cultivo por la opcion 'Cumplimiento de proyecciones'.",
+                "Actualiza el Excel para proyectar: genera el plano de siembra resumido desde el sistema de "
+                "cultivo y actualiza las columnas. Cuando los agronomos entreguen la proyeccion hecha, usa el "
+                "boton del Excel que envia los ajustes de proyeccion a la API; despues sigue con el paso 2.",
+            ],
         ),
         ETLJobDefinition(
             job_id="pedidos_surtidos",
@@ -170,7 +201,7 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
         ETLJobDefinition(
             job_id="compare_proyecciones_tika",
             name="Comparar Proyecciones Tika (Escenarios)",
-            description="Compara las proyecciones (proy1/2/3.csv) de varios modelos/escenarios Tika entre si, sin cruzar con despachos/demanda/quipus.",
+            description="Compara varios modelos/escenarios Tika entre si en un CSV con campo fuente: proyecciones (proy1/2/3), siembras (esquejes_futuros), rotaciones (salvamento) y guardes (guarde). Tambien lo guarda en la tabla tika_compara_escenarios. Sin cruzar con despachos/demanda/quipus.",
             allows_parallel=True,
             timeout_seconds=1200,
             runner=generate_compare_proyecciones_tika_report,
@@ -210,7 +241,10 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             description=(
                 "Detecta anomalías en ld_lonas usando una regla física simple: tallos > plantas/2. "
                 "Filtra por rango YYWW, rellena fechas faltantes por grupo y marca huecos como sin_dato. "
-                "Genera anomalias_detectadas.csv con todos los registros del rango."
+                "Marca plantas nulas o en 0 (con tallos > 0) como plantas_invalidas. "
+                "Genera anomalias_detectadas.csv con todos los registros del rango y "
+                "correcciones_lonas.xlsx con el valor sugerido para corregir plantas_invalidas "
+                "(plantas de la misma finca/bloque/variedad/semana de siembra) y tallos > plantas/2."
             ),
             allows_parallel=True,
             timeout_seconds=1800,
@@ -249,6 +283,7 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             depends_on=["tabla_curvas_clavel"],
             dependency_group="Producción",
             flow_group="03 - Derivados Semanales",
+            weekly_dates=True,
         ),
         ETLJobDefinition(
             job_id="desviacion_produccion",
@@ -279,6 +314,7 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             depends_on=["producto_procesado_csv"],
             dependency_group="Analítica",
             flow_group="03 - Derivados Semanales",
+            weekly_dates=True,
         ),
         ETLJobDefinition(
             job_id="fusarium_pipeline",
@@ -292,6 +328,7 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             depends_on=["load_maestra_fusarium"],
             dependency_group="Producción",
             flow_group="03 - Derivados Semanales",
+            weekly_dates=True,
         ),
         ETLJobDefinition(
             job_id="aportes_ponderados_problemas",
@@ -303,6 +340,7 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             supports_params=True,
             default_params=dict(default_week_range),
             flow_group="04 - Analitica",
+            weekly_dates=True,
         ),
         ETLJobDefinition(
             job_id="productivity_varieties_report",
@@ -316,6 +354,7 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             dependency_note="Este job autoprepara production_pipeline_curvas, qualities_pipeline y fusarium_pipeline antes de exportar.",
             dependency_group="Analítica",
             flow_group="04 - Analitica",
+            weekly_dates=True,
         ),
         ETLJobDefinition(
             job_id="exporta_cortes_lonas",
@@ -328,6 +367,7 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             default_params=dict(default_week_range),
             dependency_group="Analítica",
             flow_group="04 - Analitica",
+            weekly_dates=True,
         ),
         ETLJobDefinition(
             job_id="resumir_curvas_usadas",
@@ -343,8 +383,8 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             supports_params=True,
             default_params={
                 "curve_paths": [
-                    "//svrinverpalmas/usuarios/Hilder/Data/tika-curvas2025.csv",
-                    "//svrinverpalmas/usuarios/Hilder/Data/tika-curvas2026v2.csv",
+                    "//172.10.18.2/usuarios/Hilder/Data/tika-curvas2025.csv",
+                    "//172.10.18.2/usuarios/Hilder/Data/tika-curvas2026v2.csv",
                 ],
                 "curve_years": [2025, 2026],
                 "final_filter_value": 2,
@@ -419,7 +459,10 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
         ETLJobDefinition(
             job_id="load_maestra_lonas",
             name="Load Maestra Lonas",
-            description="Carga lonasYYYY.dbf, enriquece variedad desde ld_mvari y reemplaza la tabla ld_lonas.",
+            description=(
+                "Carga lonasYYYY.dbf, enriquece variedad desde ld_mvari y recarga en ld_lonas solo los "
+                "ultimos LOAD_LONAS_ANIOS_RECARGA anios (los anteriores se conservan)."
+            ),
             allows_parallel=False,
             timeout_seconds=1200,
             runner=load_maestra_lonas,
@@ -479,6 +522,7 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             depends_on=["producto_procesado_csv"],
             dependency_group="Analítica",
             flow_group="03 - Derivados Semanales",
+            weekly_dates=True,
         ),
         ETLJobDefinition(
             job_id="load_siembras_teo_real",
@@ -507,6 +551,26 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             dependency_group="Informes Mensuales",
         ),
         ETLJobDefinition(
+            job_id="balance_masas",
+            name="Balance de masas",
+            description=(
+                "Cruza exportado.dbf con lonas, presupuesto (pto), plantas (pblo) y areas (cre) de ld_bcult; "
+                "reparte el exportado entre fincas segun el aporte de lonas y genera 'Producción Vs "
+                "Despachado.xlsx', 'Datos de exportado.xlsx' (flor/mata y flor/m2 por finca, con finca 000), "
+                "'Base balance de masas.xlsx' y datos_realxJI_pto.csv (real vs presupuesto)."
+            ),
+            allows_parallel=True,
+            timeout_seconds=1800,
+            runner=generate_balance_masas,
+            supports_params=True,
+            default_params={
+                "anio_inicio": settings.BALANCE_MASAS_YEAR_START,
+                "anio_pto_vs_real": settings.BALANCE_MASAS_PTO_VS_REAL_YEAR_START,
+                "out_dir": settings.BALANCE_MASAS_OUTPUT_DIR,
+            },
+            dependency_group="Informes Mensuales",
+        ),
+        ETLJobDefinition(
             job_id="planos_proyeccion",
             name="Plano de Proyeccion (Sistemas Palermo + Palmas)",
             description=(
@@ -514,14 +578,63 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
                 "para ambas fincas, cruza con Lotes_de_siembra.csv para traer id_lote_siembra y exporta "
                 "planos_proyeccion.csv (solo filas cruzadas). Genera ajustes_proyeccion.xlsx en Outputs con "
                 "las filas cuyo Factor sea distinto de 1 o Mueve semanas distinto de 0 (columnas ID/Factor/"
-                "Mueve semanas/Vigencia/Bloqueado), y envia un correo por finca (Palermo/Palmas) con su "
-                "propio Excel adjunto y el detalle de registros sin Id, si los hay."
+                "Mueve semanas/Vigencia/Bloqueado) mas un Excel por finca (Palermo/Palmas), y envia un "
+                "correo con los ajustes por finca para cargar a Tika."
             ),
             allows_parallel=True,
             timeout_seconds=600,
             runner=generate_planos_proyeccion,
             dependency_group="Producción",
             flow_group="02 - Fuentes y Base",
+            manual_before=[
+                "Los agronomos ya deben haber entregado la proyeccion y el Excel para proyectar ya debe haber "
+                "enviado los ajustes de proyeccion a la API (boton del Excel): este job lee esa ultima subida.",
+            ],
+            manual_after=[
+                "Del correo 'para Subir a Tika - Ajuste de proyección', importa en Tika > Khipus > Cumplimiento "
+                "de proyecciones los archivos de las DOS fincas (Palermo y Palmas).",
+                "Ya subidos los ajustes, vuelve a Tika > Curvas Khipus, genera otra vez la consulta del mismo "
+                "rango de semanas (hoy 2601 a 2705) y REEMPLAZA tika-quipus<AASS>.csv en la carpeta de Khipus "
+                "(misma convencion AASS del paso 1).",
+                "Vuelve a ejecutar el paso 1 (Quipus vs Proyecciones) para que datos.xlsx quede con la consulta "
+                "recien reemplazada (esta segunda corrida no reenvia el correo de cumplimiento: sale una "
+                "sola vez por semana); solo despues corre el paso 3.",
+            ],
+        ),
+        ETLJobDefinition(
+            job_id="planos_proyeccion_hoja1",
+            name="Subir Proyeccion (sistema de cultivo)",
+            description=(
+                "Genera Subir_Proyeccion.xlsx en Outputs a partir de la plantilla "
+                "Subir_datos_de_proyecciones.xlsx, con sus dos hojas llenas y listas para subir al sistema de "
+                "cultivo, y la envia por correo. La hoja de proyeccion (tipo/año/semana/finca/flor/bloque/cosecha/"
+                "variedad/tallos) sale de la hoja 'datos' de datos.xlsx (job quipus_vs_proy), solo desde la "
+                "semana siguiente a la actual: tipo es parametro (AJUSTE por defecto, o INICIAL), tallos es quipus-proyección y variedad el codigo de ld_variedades. La hoja de ajustes lleva las filas "
+                "con Factor distinto de 1 o Mueve semanas distinto de 0 de planos_proyeccion.csv (job "
+                "planos_proyeccion)."
+            ),
+            allows_parallel=True,
+            timeout_seconds=600,
+            runner=generate_planos_proyeccion_hoja1,
+            supports_params=True,
+            default_params={"tipo": "AJUSTE"},
+            depends_on=["quipus_vs_proy", "planos_proyeccion"],
+            dependency_group="Producción",
+            flow_group="03 - Derivados Semanales",
+            manual_before=[
+                "CONFIRMA el parametro Tipo antes de generar: AJUSTE (por defecto) o INICIAL. Es el tipo con el "
+                "que se cargara la proyeccion al sistema de cultivo y el que hay que borrar alli antes de subir.",
+                "Verifica que tika-quipus<AASS>.csv ya fue reemplazado despues de subir los ajustes a Tika y que "
+                "el paso 1 se volvio a ejecutar con ese archivo: la hoja de proyeccion sale de datos.xlsx.",
+            ],
+            manual_after=[
+                "ANTES DE SUBIR: en el sistema de cultivo borra la proyeccion existente por tipo (el mismo "
+                "AJUSTE/INICIAL que elegiste) y por flor, tanto CLA como CM0. Solo entonces carga "
+                "Subir_Proyeccion.xlsx.",
+                "El archivo trae la proyeccion desde la semana siguiente a la actual; el correo indica la primera "
+                "semana incluida, revisala antes de cargar.",
+                "Ya cargado, genera en el sistema de cultivo la consulta de proyecciones y sigue con el paso 4.",
+            ],
         ),
         ETLJobDefinition(
             job_id="tika_demanda",

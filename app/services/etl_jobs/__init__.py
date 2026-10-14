@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.services.etl_jobs.bajas_exportado_generator import generate_bajas_exportado_reports
+from app.services.etl_jobs.balance_masas_generator import generate_balance_masas
 from app.services.etl_jobs.compare_proyecciones_tika_generator import generate_compare_proyecciones_tika_report
 from app.services.etl_jobs.compare_tika_produccion_generator import generate_compare_tika_produccion_report
 from app.services.etl_jobs.comparar_picos_demanda_generator import generate_comparar_picos_demanda_report
@@ -29,7 +30,10 @@ from app.services.etl_jobs.aportes_ponderados_problemas_generator import (
     exporta_aportes_ponderados_problemas_excel,
     generate_aportes_ponderados_problemas,
 )
-from app.services.etl_jobs.planos_proyeccion_generator import generate_planos_proyeccion
+from app.services.etl_jobs.planos_proyeccion_generator import (
+    generate_planos_proyeccion,
+    generate_planos_proyeccion_hoja1,
+)
 from app.services.etl_jobs.process_siembras_generator import generate_process_siembras_report
 from app.services.etl_jobs.proyectar_rosas_generator import generate_proyectar_rosas_report
 from app.services.etl_jobs.siembras_teo_real_generator import generate_siembras_teo_real
@@ -38,6 +42,7 @@ from app.services.etl_jobs.informes_jefes_area_generator import generate_informe
 __all__ = [
     "generate_excel_file",
     "generate_bajas_exportado_reports",
+    "generate_balance_masas",
     "generate_producto_procesado_csv",
     "generate_producto_procesado_historico_csv",
     "generate_fusarium_pipeline",
@@ -61,6 +66,7 @@ __all__ = [
     "generate_aportes_ponderados_problemas",
     "exporta_aportes_ponderados_problemas_excel",
     "generate_planos_proyeccion",
+    "generate_planos_proyeccion_hoja1",
     "generate_process_siembras_report",
     "generate_proyectar_rosas_report",
     "generate_siembras_teo_real",

@@ -18,9 +18,11 @@ def generate_process_siembras_report() -> str:
             WHEN p.tipo_siembra = '1PICO' THEN 1
             WHEN p.tipo_siembra = 'REEMPLAZO' THEN 1
             ELSE 2
-        END AS ciclos
+        END AS ciclos,
+        s.cod_temporada AS cosecha
     FROM plane AS p
     LEFT JOIN dates AS d ON d.fecha = p.fecha_siembra
+    LEFT JOIN seasons AS s ON s.nombre = p.temporada
     WHERE p.plantas > 1 AND p.producto IN('CLAVEL','MINICLAVEL')
     """
 
@@ -37,6 +39,7 @@ def generate_process_siembras_report() -> str:
         "tipo_suelo",
         "fecha_arranque",
         "ciclos",
+        "cosecha",
     ])
 
     if results.empty:
@@ -62,6 +65,7 @@ def generate_process_siembras_report() -> str:
         .str.slice(0, 4)
     )
     results["tipo_suelo"] = results["tipo_suelo"].astype(str).str.replace(" ", "_")
+    results["variedad"] = results["variedad"].astype(str).str.replace(" ", "_")
     results["ciclos"] = results["ciclos"].astype(str).str[:]
 
     cascarilla_map = {
@@ -87,7 +91,7 @@ def generate_process_siembras_report() -> str:
     # Final column selection and renaming
     final_df = results[[
         "finca", "bloque", "nave", "tabla", "cama", "variedad",
-        "semana", "año", "plantas", "ciclos", "cascarilla", "goteo"
+        "semana", "año", "plantas", "ciclos", "cascarilla", "goteo", "cosecha"
     ]].rename(columns={
         "plantas": "cantidad",
         "ciclos": "ciclo",

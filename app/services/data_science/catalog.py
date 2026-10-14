@@ -1,0 +1,116 @@
+"""Catalogo de proyectos de ciencia de datos sugeridos sobre la base ``informes``.
+
+Cada proyecto indica las tablas que usa, la pregunta de negocio, la tecnica y
+su estado. Los que tienen ``ruta`` cuentan con un prototipo navegable.
+"""
+from __future__ import annotations
+
+PROJECTS: list[dict] = [
+    {
+        "id": "precision-proyecciones",
+        "titulo": "Precisión de proyecciones",
+        "pregunta": "¿Qué tan bien proyectamos? ¿Qué variedades y semanas concentran el error y hacia qué lado nos equivocamos?",
+        "tablas": ["quipus_vs_proy"],
+        "tecnica": "Métricas de error de pronóstico (WAPE, sesgo), análisis de Pareto",
+        "valor": "Enfoca la revisión de curvas en las pocas variedades que generan la mayor parte del error en tallos.",
+        "nivel": "Inicial",
+        "estado": "prototipo",
+        "ruta": "/ciencia-datos/precision-proyecciones",
+        "icono": "fas fa-bullseye",
+    },
+    {
+        "id": "pronostico-produccion",
+        "titulo": "Pronóstico estadístico de producción",
+        "pregunta": "¿Cuánto vamos a cortar en las próximas semanas según el patrón histórico, y cómo se compara con la proyección oficial?",
+        "tablas": ["ld_lonas", "ld_proyecciones"],
+        "tecnica": "Series de tiempo: descomposición estacional, backtest de origen móvil, bandas de incertidumbre",
+        "valor": "Una segunda opinión independiente de las curvas: si ambas difieren mucho, hay algo que revisar.",
+        "nivel": "Intermedio",
+        "estado": "prototipo",
+        "ruta": "/ciencia-datos/pronostico-produccion",
+        "icono": "fas fa-chart-line",
+    },
+    {
+        "id": "calidad-anomalias",
+        "titulo": "Alertas de calidad por bloque",
+        "pregunta": "¿Qué bloques están mandando más flor a nacional de lo normal para su variedad?",
+        "tablas": ["ld_producto_procesado", "ld_nacional"],
+        "tecnica": "Detección de anomalías con encogimiento empírico-bayesiano",
+        "valor": "Detectar temprano problemas de cultivo (plagas, manejo) que bajan el % exportable.",
+        "nivel": "Inicial",
+        "estado": "prototipo",
+        "ruta": "/ciencia-datos/calidad-anomalias",
+        "icono": "fas fa-triangle-exclamation",
+    },
+    {
+        "id": "riesgo-fusarium",
+        "titulo": "Riesgo de fusarium por lote",
+        "pregunta": "¿Qué combinaciones de variedad y sustrato tienen más fusarium? ¿Qué lotes sembrados tienen mayor riesgo?",
+        "tablas": ["ld_fusarium"],
+        "tecnica": "Clasificación (gradient boosting) con validación temporal, importancia por permutación",
+        "valor": "Priorizar monitoreo y decidir variedad/sustrato en la planeación de siembras.",
+        "nivel": "Intermedio",
+        "estado": "prototipo",
+        "ruta": "/ciencia-datos/riesgo-fusarium",
+        "icono": "fas fa-virus",
+    },
+    {
+        "id": "segmentacion-curvas",
+        "titulo": "Segmentación de curvas de producción",
+        "pregunta": "¿Qué variedades se comportan igual (forma de curva, pico, duración) aunque tengan nombres distintos?",
+        "tablas": ["ld_curvas_clavel", "ld_curvas_rosas", "resumen_curvas"],
+        "tecnica": "Clustering (k-means / jerárquico) sobre curvas normalizadas de f_m por edad",
+        "valor": "Proyectar variedades nuevas con la curva de su grupo en vez de una curva genérica.",
+        "nivel": "Intermedio",
+        "estado": "idea",
+        "icono": "fas fa-diagram-project",
+    },
+    {
+        "id": "desviacion-temprana",
+        "titulo": "Alerta temprana de desviación de lotes",
+        "pregunta": "Con las primeras semanas de corte, ¿podemos predecir si un lote terminará por encima o por debajo de su curva?",
+        "tablas": ["ld_curvas_clavel", "desviacion_produccion_historico", "ld_plane_history"],
+        "tecnica": "Regresión sobre f_m acumulado temprano + características del lote",
+        "valor": "Ajustar la proyección semanas antes, cuando aún se puede reaccionar comercialmente.",
+        "nivel": "Avanzado",
+        "estado": "idea",
+        "icono": "fas fa-bell",
+    },
+    {
+        "id": "plagas-estacionalidad",
+        "titulo": "Estacionalidad de problemas fitosanitarios",
+        "pregunta": "¿En qué semanas del año suben thrips, rajado, heterosporium? ¿Se puede anticipar?",
+        "tablas": ["ld_nacional", "ld_producto_procesado", "dates"],
+        "tecnica": "Series de tiempo por causa, correlación con clima (si se integra una fuente externa)",
+        "valor": "Programar aplicaciones preventivas antes del pico de cada problema.",
+        "nivel": "Inicial",
+        "estado": "idea",
+        "icono": "fas fa-bug",
+    },
+    {
+        "id": "vida-florero",
+        "titulo": "Factores de vida en florero",
+        "pregunta": "¿Qué variedades, orígenes y tiempos de guarda explican la duración en florero?",
+        "tablas": ["flower_vases", "fv_causes", "fv_evaluations", "varieties"],
+        "tecnica": "Análisis de supervivencia (Kaplan-Meier, Cox)",
+        "valor": "Argumentos de calidad para clientes y criterios para descartar variedades.",
+        "nivel": "Avanzado",
+        "estado": "idea",
+        "icono": "fas fa-wine-glass",
+    },
+    {
+        "id": "demanda-vs-oferta",
+        "titulo": "Balance demanda vs. oferta por color",
+        "pregunta": "¿En qué semanas y colores la producción proyectada no cubre la demanda (o sobra)?",
+        "tablas": ["tika_demanda", "ld_proyecciones", "tika_compara_escenarios"],
+        "tecnica": "Optimización / simulación de escenarios de siembra",
+        "valor": "Ajustar el programa de siembras para reducir faltantes y sobrantes en fiestas.",
+        "nivel": "Avanzado",
+        "estado": "idea",
+        "icono": "fas fa-scale-balanced",
+    },
+]
+
+
+def list_projects() -> list[dict]:
+    return PROJECTS

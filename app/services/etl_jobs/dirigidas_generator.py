@@ -26,6 +26,9 @@ FLOWER_MAP: dict[str, str] = {
 
 DIAS_SEMANA: list[str] = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado"]
 
+# Máximo de lonas por día por finca/flor: el sábado la jornada es la mitad.
+CAPACIDAD_DIA: dict[str, int] = {dia: 12 for dia in DIAS_SEMANA} | {"sabado": 6}
+
 # Variedades con incremento prioritario de 1 muestra en la salida de dirigida PC.
 DIRIGIDA_PC_PRIORITY_VARIETIES: set[str] = {
     "DON PEDRO",
@@ -77,6 +80,22 @@ def _current_week_window() -> tuple[pd.Timestamp, pd.Timestamp, int]:
     fecha_final = fecha_inicio_lunes + timedelta(days=7)
     numero_semana = int(fecha_final.strftime("%Y%U"))
     return pd.Timestamp(fecha_inicio_lunes).normalize(), pd.Timestamp(fecha_final).normalize(), numero_semana
+
+
+def _dias_habiles_semana(fecha_inicio: pd.Timestamp) -> list[str]:
+    """Días lunes-sábado de la semana objetivo que no son festivo según la tabla dates.
+
+    fecha_inicio es el domingo previo (límite exclusivo de la ventana), así que
+    DIAS_SEMANA[i] cae en fecha_inicio + (i + 1) días.
+    """
+    fechas = {dia: fecha_inicio + pd.Timedelta(days=i + 1) for i, dia in enumerate(DIAS_SEMANA)}
+    desde = min(fechas.values()).strftime("%Y-%m-%d")
+    hasta = max(fechas.values()).strftime("%Y-%m-%d")
+    rows = execute_query(
+        f"SELECT fecha FROM dates WHERE festivo = 1 AND fecha BETWEEN '{desde}' AND '{hasta}'"
+    ) or []
+    festivos = {pd.Timestamp(r[0]).normalize() for r in rows if r[0] is not None}
+    return [dia for dia, fecha in fechas.items() if fecha not in festivos]
 
 
 # ---------------------------------------------------------------------------
@@ -160,6 +179,42 @@ def _load_proyecciones_dirigidas() -> pd.DataFrame:
     df["tallos"] = pd.to_numeric(df["tallos"], errors="coerce")
 
     return df.drop(columns="matas", errors="ignore")
+
+
+def _arre_exclusion_key(df: pd.DataFrame, variedad_col: str) -> pd.Series:
+    """Llave finca|bloque|variedad normalizada para cruzar contra ld_arre (la flor no cuenta)."""
+    finca = normalize_finca_series(df["finca"])
+    bloque_num = pd.to_numeric(df["bloque"], errors="coerce")
+    bloque = df["bloque"].astype(str).str.strip().str.upper()
+    bloque = bloque.where(bloque_num.isna(), bloque_num.round().astype("Int64").astype(str))
+    variedad = df[variedad_col].map(_normalize_variety_key)
+    return finca + "|" + bloque + "|" + variedad
+
+
+def _load_arre_exclusiones() -> set[str]:
+    """Combinaciones finca/bloque/variedad con arreglo AR reciente en ld_arre."""
+    dias = int(settings.DIRIGIDAS_EXCLUIR_ARREGLOS_DIAS)
+    if dias <= 0:
+        return set()
+
+    query = f"""
+        SELECT finca, bloque, nombre_variedad
+        FROM ld_arre
+        WHERE fecha >= DATE_SUB(NOW(), INTERVAL {dias} DAY) AND tipo = 'AR'
+    """
+    rows = execute_query(query) or []
+    df = pd.DataFrame(rows, columns=["finca", "bloque", "nombre_variedad"])
+    if df.empty:
+        return set()
+    return set(_arre_exclusion_key(df, "nombre_variedad"))
+
+
+def _exclude_arreglos(df: pd.DataFrame, exclusiones: set[str]) -> pd.DataFrame:
+    """Descarta filas que cruzan con arreglos AR recientes."""
+    if df.empty or not exclusiones:
+        return df
+    mask = _arre_exclusion_key(df, "nvari").isin(exclusiones)
+    return df[~mask].copy()
 
 
 def _load_arreglos_dirigidas() -> pd.DataFrame:
@@ -370,10 +425,11 @@ def _expand_by_muestra(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def _assign_days_by_block(group: pd.DataFrame) -> dict[int, str]:
+def _assign_days_by_block(group: pd.DataFrame, dias: list[str] | None = None) -> dict[int, str]:
     """Assign days keeping each bloque concentrated in one or two days when possible."""
-    day_capacity = 12
-    day_used = [0] * len(DIAS_SEMANA)
+    dias = DIAS_SEMANA if dias is None else dias
+    day_capacity = [CAPACIDAD_DIA[dia] for dia in dias]
+    day_used = [0] * len(dias)
     day_assignment: dict[int, str] = {}
 
     block_meta = (
@@ -389,23 +445,23 @@ def _assign_days_by_block(group: pd.DataFrame) -> dict[int, str]:
         pending = len(block_idxs)
 
         one_day_candidates = []
-        for day_idx in range(len(DIAS_SEMANA)):
-            remaining = day_capacity - day_used[day_idx]
+        for day_idx in range(len(dias)):
+            remaining = day_capacity[day_idx] - day_used[day_idx]
             if remaining >= pending:
                 one_day_candidates.append((remaining - pending, day_idx))
 
         if one_day_candidates:
             _, chosen_day = min(one_day_candidates)
-            day_label = DIAS_SEMANA[chosen_day]
+            day_label = dias[chosen_day]
             for idx in block_idxs:
                 day_assignment[idx] = day_label
             day_used[chosen_day] += pending
             continue
 
         two_day_candidates = []
-        for day_idx in range(len(DIAS_SEMANA) - 1):
-            rem_first = day_capacity - day_used[day_idx]
-            rem_second = day_capacity - day_used[day_idx + 1]
+        for day_idx in range(len(dias) - 1):
+            rem_first = day_capacity[day_idx] - day_used[day_idx]
+            rem_second = day_capacity[day_idx + 1] - day_used[day_idx + 1]
             if rem_first + rem_second >= pending:
                 spill = max(pending - rem_first, 0)
                 two_day_candidates.append((spill, day_idx))
@@ -413,28 +469,28 @@ def _assign_days_by_block(group: pd.DataFrame) -> dict[int, str]:
         if two_day_candidates:
             _, first_day = min(two_day_candidates)
             second_day = first_day + 1
-            take_first = min(day_capacity - day_used[first_day], pending)
+            take_first = min(day_capacity[first_day] - day_used[first_day], pending)
             first_chunk = block_idxs[:take_first]
             second_chunk = block_idxs[take_first:]
 
             for idx in first_chunk:
-                day_assignment[idx] = DIAS_SEMANA[first_day]
+                day_assignment[idx] = dias[first_day]
             for idx in second_chunk:
-                day_assignment[idx] = DIAS_SEMANA[second_day]
+                day_assignment[idx] = dias[second_day]
 
             day_used[first_day] += len(first_chunk)
             day_used[second_day] += len(second_chunk)
             continue
 
         pointer = 0
-        for day_idx in range(len(DIAS_SEMANA)):
-            remaining = day_capacity - day_used[day_idx]
+        for day_idx in range(len(dias)):
+            remaining = day_capacity[day_idx] - day_used[day_idx]
             if remaining <= 0:
                 continue
             take = min(remaining, pending)
             chunk = block_idxs[pointer : pointer + take]
             for idx in chunk:
-                day_assignment[idx] = DIAS_SEMANA[day_idx]
+                day_assignment[idx] = dias[day_idx]
             day_used[day_idx] += take
             pointer += take
             pending -= take
@@ -450,9 +506,15 @@ def _build_dirigida_bloque_output(
     tallos_x2: int,
     tallos_x3: int,
     lonas_semana: int,
+    dias_habiles: list[str] | None = None,
 ) -> pd.DataFrame:
-    """Método 'por bloque' del notebook (para dirigida por bloque.xlsx)."""
-    if df_proy_plane2.empty:
+    """Método 'por bloque' del notebook (para dirigida por bloque.xlsx).
+
+    Solo programa en dias_habiles; lonas_semana debe venir ya limitado a la
+    capacidad de esos días (CAPACIDAD_DIA de cada día).
+    """
+    dias_habiles = DIAS_SEMANA if dias_habiles is None else dias_habiles
+    if df_proy_plane2.empty or not dias_habiles or lonas_semana <= 0:
         return pd.DataFrame(columns=["finca", "flor", "bloque", "nvari", "aass", "tallos", "matas", "muestra", "dia"])
 
     df_proy_plane4 = (
@@ -495,7 +557,7 @@ def _build_dirigida_bloque_output(
     # Asignación de día concentrando cada bloque en uno o, cuando sea necesario, dos días.
     sampled_data["dia"] = ""
     for (_, _), grp in sampled_data.groupby(["finca", "flor"], sort=True):
-        assignment = _assign_days_by_block(grp)
+        assignment = _assign_days_by_block(grp, dias_habiles)
         for idx, day_label in assignment.items():
             sampled_data.at[idx, "dia"] = day_label
 
@@ -607,6 +669,11 @@ def generate_dirigidas_analyzer(params: dict[str, Any] | None = None) -> str:
 
     # Filtro principal del notebook: flor/tipo/edad + ventana semanal.
     fecha_inicio_lunes, fecha_final, numero_semana = _current_week_window()
+
+    # Festivos lunes-sábado no se programan: el cupo semanal baja a la capacidad
+    # de los días hábiles para no pasar el límite por día.
+    dias_habiles = _dias_habiles_semana(fecha_inicio_lunes)
+    lonas_semana = min(lonas_semana, sum(CAPACIDAD_DIA[dia] for dia in dias_habiles))
     df_proye = df_proy[
         (df_proy["flor"].isin(settings.DIRIGIDAS_FLOR_FILTER))
         & (df_proy["tipo"] == "Proy_Aj")
@@ -632,6 +699,11 @@ def generate_dirigidas_analyzer(params: dict[str, Any] | None = None) -> str:
         & (df_proy["fecha"] <= fecha_final)
         & (pd.to_numeric(df_proy["tallos"], errors="coerce") >= 0)
     ].copy()
+
+    # Bloques/variedades con arreglo AR reciente no se escogen como muestra (ambos métodos).
+    exclusiones_arre = _load_arre_exclusiones()
+    df_filtrado = _exclude_arreglos(df_filtrado, exclusiones_arre)
+    df_pc_filtrado = _exclude_arreglos(df_pc_filtrado, exclusiones_arre)
 
     # Preparación de plano/dates como en notebook.
     df_plane = (
@@ -666,6 +738,7 @@ def generate_dirigidas_analyzer(params: dict[str, Any] | None = None) -> str:
         tallos_x2=tallos_x2,
         tallos_x3=tallos_x3,
         lonas_semana=lonas_semana,
+        dias_habiles=dias_habiles,
     )
 
     # Método 2: salida PC por finca-variedad.

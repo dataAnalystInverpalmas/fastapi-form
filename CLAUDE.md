@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-Portal de Datos Inverpalmas: a fullstack app for agricultural production data management. FastAPI backend (Python 3.11) runs ETL pipelines over DBF files served from Windows SMB shares (`\\svrinverpalmas\...`), persists results to MySQL/MariaDB, and exports Excel/CSV reports. A Vue 3 (Composition API) + Vite + Tailwind SPA is the primary UI; a legacy Jinja2 UI is still served side by side.
+Portal de Datos Inverpalmas: a fullstack app for agricultural production data management. FastAPI backend (Python 3.11) runs ETL pipelines over DBF files served from Windows SMB shares (`\\172.10.18.2\...`), persists results to MySQL/MariaDB, and exports Excel/CSV reports. A Vue 3 (Composition API) + Vite + Tailwind SPA is the primary UI; a legacy Jinja2 UI is still served side by side.
 
 ## Commands
 
@@ -46,7 +46,9 @@ No lint/typecheck script is configured in `frontend/package.json`.
 docker compose up --build
 ```
 
-Builds the frontend, starts MySQL, and serves FastAPI at `http://localhost:8000`. `scripts/entrypoint.sh` attempts to mount the CIFS/SMB share on container start and exposes readiness via `/health`.
+Builds the frontend, starts MySQL, and serves FastAPI at `http://localhost:8000`. `scripts/entrypoint.sh` mounts **every** CIFS/SMB share listed in `SMB_SHARES` (`produc`, `Usuarios`, `newfact`) on container start — one mount per share at `SMB_MOUNT_ROOT/<share>` — and `/health` reports each one separately. A share that fails to mount does not stop the app; the jobs that read it fail instead, so check `/health` first when a job can't find a file.
+
+The container starts as **root** on purpose: mounting CIFS needs `CAP_SYS_ADMIN` (granted by `cap_add` in `docker-compose.yml`) and an unprivileged user cannot mount. After mounting, `entrypoint.sh` drops to `appuser` via `setpriv` to run uvicorn, so the app itself stays unprivileged. Don't add `USER appuser` back to the Dockerfile — it silently breaks every mount.
 
 ## Architecture
 
@@ -61,7 +63,7 @@ Registry/catalog/runner pattern, deliberately separated:
 - `params.py` — normalizes/coerces user-submitted params against a job's `default_params` shape (int/float/bool/list parsing from strings), and resolves effective params with priority: explicit request > last-saved params for that job > catalog defaults.
 
 Two job families exist and are exposed under different UI/URL sections:
-- **Loaders** (`app/services/dbf_loaders/`, `/load/jobs`) — read a DBF straight into a MySQL table (`allows_parallel=False`, no params). Four of these plus `bajas_exportado` run automatically every day at 10:00 (America/Bogota) via APScheduler cron jobs registered in `app/main.py`.
+- **Loaders** (`app/services/dbf_loaders/`, `/load/jobs`) — read a DBF straight into a MySQL table (`allows_parallel=False`, no params). Five of these plus `bajas_exportado` run automatically every day at 10:00 (America/Bogota) via APScheduler cron jobs registered in `app/main.py`.
 - **Process jobs** (`app/services/etl_jobs/`, `/etl/jobs`) — heavier pipelines that read DBF/CSV/MySQL, transform with pandas, and write CSV/Excel/MySQL. Many declare `depends_on` other job_ids purely for UI/flow-diagram purposes (`/api/etl/flow`); the runner does **not** enforce dependency ordering — the caller/operator is responsible for running jobs in the right order.
 
 Jobs run in background threads and are tracked by a DB-backed run id, not by blocking HTTP requests — routes in `app/routes/api.py` start a job and return immediately; the frontend polls run status (see `useEtlPolling.js`).
@@ -76,13 +78,21 @@ Jobs run in background threads and are tracked by a DB-backed run id, not by blo
 
 ### Config (`app/core/`)
 
-- `settings.py` — a `pydantic-settings` `Settings` model, loaded from `.env`. It defines every ETL job's file paths, filters, and date ranges as typed fields (mostly UNC paths under `\\svrinverpalmas\...`) — this is effectively per-job configuration, not just app config. Includes custom coercion (`apply_overrides`/`_coerce_value`) so string overrides (env vars, JSON) get cast to the field's real type (bool/int/float/list/dict).
+- `settings.py` — a `pydantic-settings` `Settings` model, loaded from `.env`. It defines every ETL job's file paths, filters, and date ranges as typed fields (mostly UNC paths under `\\172.10.18.2\...`) — this is effectively per-job configuration, not just app config. Includes custom coercion (`apply_overrides`/`_coerce_value`) so string overrides (env vars, JSON) get cast to the field's real type (bool/int/float/list/dict).
 - `config_store.py` + `app/routes/config.py` (`/config`) — a **runtime settings override UI**: changes made there are persisted to `.app_config_overrides.json` at repo root and reapplied over the `Settings` defaults on next load (`_load_persistent_overrides()` in `settings.py`). This lets operators change job paths/params without editing `.env` or redeploying.
 - `app/core/config.py` is a thin backward-compat shim re-exporting `settings`.
 
 ### Network path resolution (`app/services/utils/pathing.py`)
 
-Paths in `settings.py` are Windows UNC (`\\svrinverpalmas\...`), but the app also runs in a Linux Docker container where the share is mounted via CIFS. `resolve_network_path()`/`normalize_path_for_runtime()` detect the runtime (`APP_ENV=docker` or `/.dockerenv`) and rewrite UNC paths to the local mount point (`SMB_MOUNT_ROOT`/`SMB_MOUNT_PATH`). Any new job reading a `\\...` path should go through this helper rather than using the raw path.
+Paths in `settings.py` are UNC paths to the file server **by IP** (`\\172.10.18.2\<share>\...`, some written `//172.10.18.2/<share>/...` — both styles are handled), and the app also runs in a Linux Docker container where each share is mounted via CIFS. `resolve_network_path()`/`normalize_path_for_runtime()` detect the runtime (`APP_ENV=docker` or `/.dockerenv`) and rewrite the UNC path to that share's mount point. Any new job reading a network path must go through this helper rather than using the raw path.
+
+The share segment is what makes this work, so it is never dropped:
+
+- `settings.SMB_SHARES` lists every mounted share (`produc`, `Usuarios`, `newfact`) and is the same list `entrypoint.sh` mounts. **A job that reads a new share needs it added there and in `SMB_SHARES` for docker-compose/`.env`.**
+- Share names match case-insensitively (settings mixes `Usuarios` and `usuarios`) and resolve to the configured spelling, which is how the mount directory is named.
+- `SMB_SERVER` must be the same host the paths use (the IP). `SMB_SERVER_ALIASES` covers the old NetBIOS name (`svrinverpalmas`) in case an operator types it in `/config`.
+- The primary share (`SMB_SHARE`) is the only one with its own configurable mount point (`SMB_MOUNT_PATH`); the rest land in `SMB_MOUNT_ROOT/<share>`.
+- The CIFS mount needs `nocase` because folder segments vary in case between settings entries (`produc/LD_BCULT` vs `produc/ld_bcult`) — harmless on Windows, fatal on Linux without it.
 
 ### DBF reading (`app/services/utils/dbf_reader.py`)
 

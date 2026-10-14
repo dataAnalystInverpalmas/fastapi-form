@@ -25,6 +25,8 @@ from app.services.etl.helpers import (
 logger = logging.getLogger(__name__)
 
 _CUMPLIMIENTO_EMAIL_SUBJECT = "Subir a cumplimiento de proyecciones"
+# Guarda la semana (YYWW) del ultimo correo de cumplimiento enviado.
+_CUMPLIMIENTO_MARKER_FILENAME = "cumplimiento_khipus_enviado.txt"
 
 
 def _normalize_column_name(value: str) -> str:
@@ -321,9 +323,13 @@ def _load_quipus_data(semana_actual: int) -> pd.DataFrame:
 
     if "semana_de_siembra" in df_quipus.columns:
         df_quipus = df_quipus.rename(columns={"semana_de_siembra": "semana"})
-    if "cantidad" not in df_quipus.columns and "produccion_tika" in df_quipus.columns:
-        # CSV reciente: "Producción tika" -> normalizado a "produccion_tika".
-        df_quipus = df_quipus.rename(columns={"produccion_tika": "cantidad"})
+    if "cantidad" not in df_quipus.columns:
+        # El proveedor renombra la columna de cantidad entre semanas:
+        # "Producción tika" -> "produccion_tika", "Proyección khipus" -> "proyeccion_khipus".
+        for alias in ("produccion_tika", "proyeccion_khipus"):
+            if alias in df_quipus.columns:
+                df_quipus = df_quipus.rename(columns={alias: "cantidad"})
+                break
 
     required = {
         "finca",
@@ -747,8 +753,24 @@ def _build_report_frames(
     return df_proy, df_real, df_quipus_report
 
 
-def _notify_cumplimiento_khipus(*, excel_path: Path, row_count: int, enviar_email: bool) -> None:
+def _cumplimiento_marker_path(excel_path: Path) -> Path:
+    return excel_path.parent / _CUMPLIMIENTO_MARKER_FILENAME
+
+
+def _cumplimiento_ya_enviado(excel_path: Path, semana: int) -> bool:
+    try:
+        return _cumplimiento_marker_path(excel_path).read_text(encoding="utf-8").strip() == str(semana)
+    except OSError:
+        return False
+
+
+def _notify_cumplimiento_khipus(*, excel_path: Path, row_count: int, enviar_email: bool, semana: int) -> None:
     """Envía por correo el reporte filtrado de cumplimiento de Khipus.
+
+    Se envía una sola vez por semana (semana = YYWW de la corrida): el paso 1
+    se vuelve a ejecutar después de subir los ajustes a Tika (paso 2), y esa
+    segunda corrida no debe repetir el correo. La semana enviada queda en
+    _CUMPLIMIENTO_MARKER_FILENAME junto al Excel; borrarlo fuerza el reenvío.
 
     Los destinatarios salen de settings.QUIPUS_CUMPLIMIENTO_EMAILS (grupo
     "Quipus" en Ajustes). Nunca lanza excepción: el archivo en
@@ -757,6 +779,9 @@ def _notify_cumplimiento_khipus(*, excel_path: Path, row_count: int, enviar_emai
     """
     if not enviar_email:
         logger.info("quipus_vs_proy: envío de correo omitido (enviar_email=False).")
+        return
+    if _cumplimiento_ya_enviado(excel_path, semana):
+        logger.info("quipus_vs_proy: el correo de cumplimiento de la semana %s ya se envió; no se repite.", semana)
         return
     if row_count == 0:
         logger.info("quipus_vs_proy: sin filas con Cumple mayor a 0 tras filtrar; no se envía correo.")
@@ -787,22 +812,70 @@ def _notify_cumplimiento_khipus(*, excel_path: Path, row_count: int, enviar_emai
         )
     except MailNotConfiguredError as exc:
         logger.warning("quipus_vs_proy: no se envio el correo de cumplimiento: %s", exc)
+        return
     except Exception:  # noqa: BLE001
         logger.exception("quipus_vs_proy: fallo inesperado enviando el correo de cumplimiento.")
+        return
+
+    try:
+        _cumplimiento_marker_path(excel_path).write_text(str(semana), encoding="utf-8")
+    except OSError:
+        logger.exception("quipus_vs_proy: no se pudo registrar la semana del correo de cumplimiento.")
+
+
+def _load_variedad_codigos() -> pd.DataFrame:
+    """Mapeo codigo/nombre de ld_variedades para enriquecer quipus.csv."""
+    sql = """
+        SELECT v.codigo, v.nombre
+        FROM ld_variedades v
+    """
+    rows = execute_query(sql) or []
+    return pd.DataFrame(rows, columns=["codigo", "nombre"])
+
+
+def _build_quipus_export(
+    df_quipus_proyeccion: pd.DataFrame,
+    df_codigos: pd.DataFrame,
+) -> pd.DataFrame:
+    """Prepara quipus.csv: agrega el codigo de variedad y exporta el nombre con espacios.
+
+    Usa inner join sobre v.nombre = replace(q.variedad, '_', ' '); las variedades
+    sin codigo en ld_variedades quedan fuera del CSV.
+    """
+    if df_codigos.empty:
+        raise RuntimeError("No se pudo cargar ld_variedades para enriquecer quipus.csv.")
+
+    df_export = df_quipus_proyeccion.copy()
+    df_export["variedad_nombre"] = (
+        df_export["variedad"].astype(str).str.strip().str.replace("_", " ", regex=False)
+    )
+    df_export = pd.merge(
+        df_export,
+        df_codigos[["codigo", "nombre"]],
+        left_on="variedad_nombre",
+        right_on="nombre",
+        how="inner",
+    )
+    df_export["variedad"] = df_export["variedad_nombre"]
+    df_export = df_export.drop(columns=["variedad_nombre", "nombre"])
+    return df_export[
+        ["finca", "flor", "bloque", "cosecha", "variedad", "codigo", "sem_prod", "cantidad", "tipo", "fuente", "nfiesta"]
+    ].copy()
 
 
 def _persist_outputs(
     df_report: pd.DataFrame,
     df_mysql: pd.DataFrame,
     df_matas: pd.DataFrame,
-    df_quipus_proyeccion: pd.DataFrame,
+    df_quipus_export: pd.DataFrame,
     df_resumen: pd.DataFrame,
     *,
     enviar_email: bool = True,
+    semana_actual: int,
 ) -> str:
     quipus_output_path = Path(normalize_path(settings.QUIPUS_OUTPUT_PATH))
     quipus_output_path.parent.mkdir(parents=True, exist_ok=True)
-    df_quipus_proyeccion.to_csv(quipus_output_path, index=False, encoding="utf-8-sig")
+    df_quipus_export.to_csv(quipus_output_path, index=False, encoding="utf-8-sig")
 
     report_output_path = Path(normalize_path(settings.QUIPUS_VS_PROY_OUTPUT_PATH))
     report_output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -831,6 +904,7 @@ def _persist_outputs(
         excel_path=outputs_summary_path,
         row_count=len(df_cumplimiento),
         enviar_email=enviar_email,
+        semana=semana_actual,
     )
 
     return str(report_output_path)
@@ -842,6 +916,7 @@ def generate_quipus_vs_proy_artifacts(params: dict[str, Any] | None = None) -> s
     enviar_email = bool(params.get("enviar_email", True))
 
     df_vari, df_cose, df_dup = _load_reference_data()
+    df_codigos = _load_variedad_codigos()
     df_fechas_lunes = _load_calendar_mondays()
 
     df_plano_group_s, df_plano_group_a, df_plano_final, df_nplantas = _load_plano_data(semana_actual)
@@ -855,6 +930,10 @@ def generate_quipus_vs_proy_artifacts(params: dict[str, Any] | None = None) -> s
         df_nplantas=df_nplantas,
         df_dup=df_dup,
         df_cose=df_cose,
+    )
+    df_quipus_export = _build_quipus_export(
+        df_quipus_proyeccion=df_quipus_proyeccion,
+        df_codigos=df_codigos,
     )
 
     df_proyecciones = _load_proyecciones()
@@ -896,7 +975,8 @@ def generate_quipus_vs_proy_artifacts(params: dict[str, Any] | None = None) -> s
         df_report=df_report,
         df_mysql=df_mysql,
         df_matas=df_matas,
-        df_quipus_proyeccion=df_quipus_proyeccion,
+        df_quipus_export=df_quipus_export,
         df_resumen=df_resumen,
         enviar_email=enviar_email,
+        semana_actual=semana_actual,
     )
