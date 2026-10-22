@@ -8,6 +8,7 @@ from app.services.etl_jobs.comparar_picos_demanda_generator import generate_comp
 from app.services.etl_jobs.desviacion_produccion_generator import generate_desviacion_produccion
 from app.services.etl_jobs.dirigidas_generator import generate_dirigidas_analyzer
 from app.services.etl_jobs.excel_generator import generate_excel_file
+from app.services.etl_jobs.explicar_brecha_tika_generator import generate_explicar_brecha_tika
 from app.services.etl_jobs.fusarium_pipeline_generator import generate_fusarium_pipeline
 from app.services.etl_jobs.produccion_picos_generator import generate_produccion_picos_report
 from app.services.etl_jobs.production_pipeline_generator import generate_production_pipeline
@@ -53,6 +54,7 @@ __all__ = [
     "generate_quipus_vs_proy_artifacts",
     "generate_compare_tika_produccion_report",
     "generate_comparar_picos_demanda_report",
+    "generate_explicar_brecha_tika",
     "generate_desviacion_produccion",
     "generate_dirigidas_analyzer",
     "generate_anomalias_lonas",

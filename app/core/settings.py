@@ -303,6 +303,11 @@ class Settings(BaseSettings):
     COMPARE_TIKA_OUTPUT_PATH: str = r"\\172.10.18.2\Usuarios\Hilder\Data\comparar producción.csv"
     COMPARE_TIKA_OUTPUT_EXCEL_PATH: str = r"\\172.10.18.2\Usuarios\Outputs\comparar producción.xlsx"
 
+    # Explicar brecha Real vs Demanda (cascada por escenarios Tika)
+    EXPLICAR_BRECHA_TIKA_SEMANA_INICIO: int = 2620
+    EXPLICAR_BRECHA_TIKA_SEMANA_FIN: int = 2639
+    EXPLICAR_BRECHA_TIKA_OUTPUT_PATH: str = r"\\172.10.18.2\Usuarios\Outputs\explicar brecha tika.xlsx"
+
     # ETL comparativo de proyecciones Tika entre varios modelos/escenarios
     COMPARE_PROYECCIONES_TIKA_DEFAULT_MODELS: list[int] = [161, 328, 485, 405]
     COMPARE_PROYECCIONES_TIKA_OUTPUT_PATH: str = r"\\172.10.18.2\Usuarios\Hilder\Data\comparar proyecciones tika.csv"

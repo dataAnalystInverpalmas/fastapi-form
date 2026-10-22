@@ -45,10 +45,14 @@ def generate_process_siembras_report() -> str:
     if results.empty:
         raise RuntimeError("No se encontraron registros para procesar siembras.")
 
+    # Espacio reservado a la cosecha VITRI: solo bloque 16, nave 10, tabla A, camas 4-7.
+    # El resto de la nave 10 es productivo/comercial y sí se exporta.
     filter_mask = ~(
         (results["finca"] == "INVERPALMAS")
-        & (results["bloque"] == 16)
-        & (results["nave"] == 10)
+        & (pd.to_numeric(results["bloque"], errors="coerce") == 16)
+        & (pd.to_numeric(results["nave"], errors="coerce") == 10)
+        & (results["tabla"].astype(str).str.strip().str.upper() == "A")
+        & (pd.to_numeric(results["cama"], errors="coerce").isin([4, 5, 6, 7]))
         & (results["variedad"] != "MISS TRENDY")
     )
 

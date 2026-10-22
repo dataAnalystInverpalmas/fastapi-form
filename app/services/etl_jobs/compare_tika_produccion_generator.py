@@ -7,7 +7,7 @@ import pandas as pd
 
 from app.core.settings import settings
 from app.services.utils.dbf_reader import normalize_path
-from app.services.etl.helpers import execute_query, safe_int_series, validate_columns
+from app.services.etl.helpers import dataframe_to_sql, execute_query, safe_int_series, validate_columns
 
 
 FLOWER_MAP = {
@@ -416,5 +416,8 @@ def generate_compare_tika_produccion_report(params: dict[str, Any] | None = None
     output_excel = Path(normalize_path(settings.COMPARE_TIKA_OUTPUT_EXCEL_PATH))
     output_excel.parent.mkdir(parents=True, exist_ok=True)
     df.to_excel(output_excel, index=False)
+
+    # Se reemplaza en cada corrida, igual que el CSV/Excel.
+    dataframe_to_sql(df, "tika_compara_produccion", if_exists="replace")
 
     return str(output_csv)
