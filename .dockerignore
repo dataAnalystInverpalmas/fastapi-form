@@ -1,0 +1,23 @@
+# Entorno local de Windows: no sirve en el contenedor Linux y pesa cientos de MB.
+venv/
+.venv/
+**/__pycache__/
+**/*.pyc
+frontend/node_modules/
+frontend/dist/
+
+# Secretos: se pasan en tiempo de ejecucion (env_file y volumen), nunca dentro
+# de la imagen.
+.env
+.app_config_overrides.json
+
+# Datos y salidas locales
+.git/
+logs/
+output/
+scratchpad/
+notebook_runs/
+load_tests/
+deploy-out/
+tmp_*.csv
+.claude/

@@ -1,0 +1,72 @@
+# Compose para el servidor: usa la imagen ya compilada (cargada con
+# instalar.ps1 desde imagenes\*.tar), no compila nada en el servidor.
+#
+# Base de datos:
+#   - Si DB_HOST en .env apunta a un MySQL/MariaDB existente (p. ej.
+#     172.10.18.128), solo arranca la app.
+#   - Si DB_HOST=db, instalar.ps1 activa el perfil "localdb" y levanta
+#     tambien un MySQL 8 en contenedor con volumen persistente.
+
+# Nombre fijo: si no, Docker usa el nombre de la carpeta y una actualizacion
+# copiada en otra carpeta chocaria con el contenedor ya instalado.
+name: inverpalmas-portal
+
+services:
+  db:
+    image: mysql:8.0
+    profiles: ["localdb"]
+    container_name: inverpalmas-db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_NAME:-informes}
+      MYSQL_USER: ${DB_USER:-appuser}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-apppass}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpass}
+      TZ: America/Bogota
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  fastapi-app:
+    image: inverpalmas-portal:latest
+    container_name: inverpalmas-portal
+    # Si la base aun no responde la app termina y Docker la reinicia sola.
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      APP_ENV: docker
+      TZ: America/Bogota
+      SMB_SERVER: ${SMB_SERVER:-172.10.18.2}
+      SMB_SHARES: ${SMB_SHARES:-produc,Usuarios,newfact}
+      SMB_SHARE: ${SMB_SHARE:-produc}
+      SMB_MOUNT_ROOT: /mnt/smb
+      SMB_MOUNT_PATH: /mnt/smb/produc
+      SMB_OPTIONS: ${SMB_OPTIONS:-uid=1000,gid=1000,vers=2.1,iocharset=utf8,nocase}
+      DB_PORT: ${DB_PORT:-3306}
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    volumes:
+      - ./logs:/app/logs
+      - ./.app_config_overrides.json:/app/.app_config_overrides.json
+    cap_add:
+      - SYS_ADMIN
+      - DAC_READ_SEARCH
+    security_opt:
+      - seccomp:unconfined
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+volumes:
+  mysql_data:

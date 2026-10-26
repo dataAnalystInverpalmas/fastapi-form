@@ -25,6 +25,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    image: inverpalmas-portal:latest
     container_name: fastapi-form
     restart: unless-stopped
     depends_on:
@@ -59,6 +60,9 @@ services:
       - "8000:8000"
     volumes:
       - ./logs:/app/logs
+      # Ajustes hechos desde /config: viven en el host para sobrevivir a
+      # reconstrucciones de la imagen (ya no se copian dentro de ella).
+      - ./.app_config_overrides.json:/app/.app_config_overrides.json
     cap_add:
       # SYS_ADMIN: montar. DAC_READ_SEARCH: mount.cifs la activa al arrancar y
       # Docker no la concede por defecto; sin ella falla con "Unable to apply

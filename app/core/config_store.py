@@ -157,5 +157,8 @@ def save_config_overrides(overrides: dict[str, Any]) -> dict[str, Any]:
 
 def clear_config_overrides() -> None:
     settings.reset_to_defaults()
+    # Se vacia en lugar de borrarlo: en Docker es un archivo montado desde el
+    # host y no se puede eliminar desde el contenedor.
     if _CONFIG_FILE.exists():
-        _CONFIG_FILE.unlink()
+        with _CONFIG_FILE.open("w", encoding="utf-8") as handle:
+            json.dump({}, handle)

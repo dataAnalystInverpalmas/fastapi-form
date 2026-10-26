@@ -8,3 +8,4 @@ notebook_runs/
 output/
 tmp_curvas_test.csv
 .app_config_overrides.json
+deploy-out/
