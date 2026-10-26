@@ -1,0 +1,2 @@
+# Scripts que corren en Linux (contenedor/WSL): con CRLF fallan con "bad interpreter".
+*.sh text eol=lf
