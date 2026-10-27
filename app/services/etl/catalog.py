@@ -232,8 +232,8 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
         ETLJobDefinition(
             job_id="comparar_picos_demanda",
             name="Comparar Picos vs Demanda",
-            description="Genera compara_pto_proy_real.csv y flor_color_diferencias.csv consolidando proyecciones, quipus, Tika y demanda por pico/bloque.",
-            allows_parallel=True,
+            description="Genera compara_pto_proy_real.csv y flor_color_diferencias.csv (y las tablas MySQL del mismo nombre) consolidando proyecciones, quipus, Tika y demanda por pico/bloque. Finca siempre 001/002/000.",
+            allows_parallel=False,
             timeout_seconds=2400,
             runner=generate_comparar_picos_demanda_report,
             supports_params=True,

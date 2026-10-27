@@ -83,6 +83,13 @@ class ProyeccionesGeneratorIntegrityTest(unittest.TestCase):
         expected = ["001", "002", "001", "002", "001", "002", "001", "002", "000"]
         self.assertEqual([picos_demanda_mod._normalize_finca_code(value) for value in entries], expected)
 
+    def test_normalize_finca_code_maps_unknown_values_to_000(self):
+        entries = ["3", "003", 7, 0, "0", "", "OTRA", float("nan"), "1.5"]
+        self.assertEqual(
+            [picos_demanda_mod._normalize_finca_code(value) for value in entries],
+            ["000"] * len(entries),
+        )
+
     def test_generate_proyecciones_csv_tracks_counts_through_transforms(self):
         df_proy = pd.DataFrame(
             [

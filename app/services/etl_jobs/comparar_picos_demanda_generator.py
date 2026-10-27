@@ -8,7 +8,7 @@ import pandas as pd
 
 from app.core.settings import settings
 from app.services.utils.dbf_reader import normalize_path
-from app.services.etl.helpers import execute_query, pico, safe_int_series, validate_columns
+from app.services.etl.helpers import dataframe_to_sql, execute_query, pico, safe_int_series, validate_columns
 
 
 FLOWER_MAP: dict[str, str] = {
@@ -54,12 +54,18 @@ FARM_REPLACEMENTS: dict[str, str] = {
     "2.0": "002",
 }
 
+VALID_FINCAS: frozenset[str] = frozenset({"001", "002", "000"})
+
+MYSQL_TABLE_NAME = "compara_pto_proy_real"
+MYSQL_DIFERENCIAS_TABLE_NAME = "flor_color_diferencias"
+
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
 
 
 def _normalize_finca_code(value: Any) -> str:
+    """Devuelve siempre '001', '002' o '000' (no aplica / desconocida)."""
     if pd.isna(value):
         return "000"
 
@@ -68,10 +74,16 @@ def _normalize_finca_code(value: Any) -> str:
         return FARM_REPLACEMENTS[raw]
 
     numeric = pd.to_numeric(raw, errors="coerce")
-    if pd.notna(numeric):
-        return str(int(numeric)).zfill(3)
+    if pd.notna(numeric) and float(numeric).is_integer():
+        code = str(int(numeric)).zfill(3)
+        if code in VALID_FINCAS:
+            return code
 
-    return FARM_REPLACEMENTS.get(raw, "000")
+    return "000"
+
+
+def _normalize_finca_series(series: pd.Series) -> pd.Series:
+    return series.map(_normalize_finca_code).fillna("000").astype(str)
 
 
 def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -175,7 +187,7 @@ def _load_proyecciones_picos() -> pd.DataFrame:
     df["matas"] = pd.to_numeric(df["matas"], errors="coerce")
     df["edad"] = pd.to_numeric(df["edad"], errors="coerce")
     df["tipo"] = df["tipo"].astype(str).str.strip()
-    df["finca"] = df["finca"].map(_normalize_finca_code).fillna("000")
+    df["finca"] = _normalize_finca_series(df["finca"])
 
     df["pico"] = _compute_pico(df["edad"])
 
@@ -212,6 +224,7 @@ def _load_quipus_picos(df_dates: pd.DataFrame, df_vari: pd.DataFrame) -> pd.Data
 
     df["variedad"] = _normalize_text(df["variedad"])
     df["flor"] = df["flor"].astype(str).str.strip().replace(FLOWER_MAP)
+    df["finca"] = _normalize_finca_series(df["finca"])
     df["tallos"] = pd.to_numeric(df["tallos"], errors="coerce").fillna(0)
     df["matas"] = 0
 
@@ -304,7 +317,7 @@ def _process_tika_picos(
 
     df["tipo"] = tipo
     df["flor"] = df["flor"].astype(str).str.strip().replace(FLOWER_MAP)
-    df["finca"] = df["finca"].map(_normalize_finca_code).fillna("000")
+    df["finca"] = _normalize_finca_series(df["finca"])
 
     df = df.rename(columns={
         "cantidad": "tallos",
@@ -371,7 +384,7 @@ def _load_demanda_picos(df_dates: pd.DataFrame, df_vari: pd.DataFrame) -> pd.Dat
     df["edad"] = np.nan
     df["matas"] = np.nan
     df["bloque"] = np.nan
-    df["finca"] = np.nan
+    df["finca"] = "000"  # la demanda no tiene resolución por finca
     df["cosecha"] = np.nan
     df["ncosecha"] = np.nan
     df["pico"] = 0
@@ -383,7 +396,7 @@ def _load_demanda_picos(df_dates: pd.DataFrame, df_vari: pd.DataFrame) -> pd.Dat
 # secondary analysis
 # ---------------------------------------------------------------------------
 
-def _generate_diferencias(df_export: pd.DataFrame, params: dict[str, Any]) -> None:
+def _generate_diferencias(df_export: pd.DataFrame, params: dict[str, Any]) -> pd.DataFrame:
     """
     Calcula flor_color_diferencias.csv con la diferencia entre producción
     proyectada (Real|Teo) y demanda, por flor/color/semana.
@@ -435,6 +448,7 @@ def _generate_diferencias(df_export: pd.DataFrame, params: dict[str, Any]) -> No
     diferencias_path = Path(normalize_path(settings.PICOS_OUTPUT_DIFERENCIAS_PATH))
     diferencias_path.parent.mkdir(parents=True, exist_ok=True)
     df_prd.to_csv(diferencias_path, index=False, encoding="utf-8-sig")
+    return df_prd
 
 
 # ---------------------------------------------------------------------------
@@ -484,12 +498,19 @@ def generate_comparar_picos_demanda_report(params: dict[str, Any] | None = None)
     # reemplazos de color
     df_export["color"] = df_export["color"].replace(COLOR_REPLACEMENTS)
 
+    # finca siempre 001 / 002 / 000 (000 = no aplica)
+    df_export["finca"] = _normalize_finca_series(df_export["finca"])
+
     # guardar CSV principal
     output_path = Path(normalize_path(settings.PICOS_OUTPUT_PATH))
     output_path.parent.mkdir(parents=True, exist_ok=True)
     df_export.to_csv(output_path, index=False, encoding="utf-8-sig")
 
     # reporte secundario (diferencias por color)
-    _generate_diferencias(df_export, params)
+    df_diferencias = _generate_diferencias(df_export, params)
+
+    # persistir en MySQL
+    dataframe_to_sql(df_export, MYSQL_TABLE_NAME, if_exists="replace")
+    dataframe_to_sql(df_diferencias, MYSQL_DIFERENCIAS_TABLE_NAME, if_exists="replace")
 
     return str(output_path)
