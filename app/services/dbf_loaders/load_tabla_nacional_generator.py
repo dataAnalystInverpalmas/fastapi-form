@@ -30,7 +30,8 @@ def _resolve_rflo_filenames(params: dict[str, Any] | None = None) -> list[str]:
     if filenames:
         return filenames
 
-    fallback_name = settings.LOAD_RFLO_NACIONAL_PATH.split("\\")[-1].strip()
+    # La ruta puede venir como \\servidor\... o //servidor/...
+    fallback_name = settings.LOAD_RFLO_NACIONAL_PATH.replace("\\", "/").split("/")[-1].strip()
     if fallback_name:
         return [fallback_name]
     raise RuntimeError("No se definieron tablas rflo para cargar ld_nacional.")

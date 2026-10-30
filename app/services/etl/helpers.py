@@ -59,7 +59,9 @@ def read_many_dbf(base_dir: str, filenames: Iterable[str]) -> pd.DataFrame:
     normalized_base = normalize_path(base_dir).rstrip("\\/")
 
     for filename in filenames:
-        full_path = f"{normalized_base}\\{filename}"
+        # Path usa el separador del sistema: con "\\" fijo, en Docker quedaba
+        # "/mnt/smb/produc/ld_bcult\arre2020.dbf" (Errno 22).
+        full_path = str(Path(normalized_base) / filename)
         if not Path(full_path).exists():
             continue
         frame = read_dbf(full_path)
