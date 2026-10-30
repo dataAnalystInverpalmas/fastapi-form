@@ -40,7 +40,10 @@ COPY --from=frontend-build /app/frontend/dist ./frontend/dist
 # scripts/entrypoint.sh). Se crean aqui y se ceden a appuser para que el
 # montaje quede con su uid/gid (SMB_OPTIONS usa uid=1000,gid=1000) y para
 # que la app pueda escribir en los shares de salida.
+# chmod: los .sh se commitean desde Windows sin bit de ejecucion; compilando
+# desde un clon en Linux el entrypoint fallaba con "Permission denied".
 RUN mkdir -p /app/logs /mnt/smb/produc /mnt/smb/Usuarios /mnt/smb/newfact \
+    && chmod +x /app/scripts/*.sh \
     && chown -R appuser:appuser /app /mnt/smb
 
 # NO se fija USER appuser: el contenedor arranca como root porque montar CIFS
