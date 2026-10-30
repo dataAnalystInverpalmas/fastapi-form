@@ -62,7 +62,7 @@ def _resolve_export_filter_min(params: dict[str, Any] | None) -> int:
     return filter_min
 
 
-def _procesar_curvas(path_csv: str, anio: int) -> pd.DataFrame:
+def _procesar_curvas(path_csv: str, programa: str) -> pd.DataFrame:
     csv_path = Path(normalize_path(path_csv))
     if not csv_path.exists():
         raise FileNotFoundError(f"No existe el archivo de curvas: {csv_path}")
@@ -87,7 +87,7 @@ def _procesar_curvas(path_csv: str, anio: int) -> pd.DataFrame:
     df["variedad"] = df["variedad"].astype(str).str.strip().str.replace(" ", "_", regex=False)
     df["edad"] = pd.to_numeric(df["edad"], errors="coerce")
     df["fm"] = pd.to_numeric(df["fm"], errors="coerce").fillna(0)
-    df["prg"] = int(anio)
+    df["prg"] = programa
     df = df[["variedad", "edad", "fm", "prg"]].dropna(subset=["edad"]).sort_values(["variedad", "edad"])
     return df
 
@@ -203,7 +203,17 @@ def _split_param_list(value: Any) -> list[Any]:
     return [value]
 
 
-def _resolve_curve_sources(params: dict[str, Any] | None) -> list[tuple[str, int]]:
+def _normalize_program_label(value: Any) -> str:
+    """Etiqueta del programa (columna prg): un año ('2026') o un nombre ('sugerencia_khipus')."""
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    return str(value).strip().replace(" ", "_")
+
+
+def _resolve_curve_sources(params: dict[str, Any] | None) -> list[tuple[str, str]]:
+    # 'curve_years' conserva su nombre por compatibilidad con los params guardados,
+    # pero cada elemento es la etiqueta del programa: un año o un nombre libre
+    # (p. ej. 'sugerencia_khipus' para las curvas sugeridas por Tika).
     raw_paths = _split_param_list((params or {}).get("curve_paths"))
     raw_years = _split_param_list((params or {}).get("curve_years"))
     if not raw_paths or not raw_years:
@@ -211,16 +221,20 @@ def _resolve_curve_sources(params: dict[str, Any] | None) -> list[tuple[str, int
     if len(raw_paths) != len(raw_years):
         raise ValueError("'curve_paths' y 'curve_years' deben tener la misma cantidad de elementos.")
 
-    sources: list[tuple[str, int]] = []
+    sources: list[tuple[str, str]] = []
     for path_value, year_value in zip(raw_paths, raw_years, strict=True):
         path = str(path_value).strip()
         if not path:
             continue
-        try:
-            year = int(year_value)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"Año inválido para la curva '{path}': {year_value!r}.") from exc
-        sources.append((path, year))
+        label = _normalize_program_label(year_value)
+        if not label:
+            raise ValueError(f"Falta la etiqueta de programa para la curva '{path}'.")
+        sources.append((path, label))
+
+    labels = [label for _, label in sources]
+    duplicated = sorted({label for label in labels if labels.count(label) > 1})
+    if duplicated:
+        raise ValueError(f"Etiquetas de programa repetidas en 'curve_years': {', '.join(duplicated)}.")
 
     if not sources:
         raise ValueError("No se encontraron curvas válidas para procesar.")
@@ -401,7 +415,7 @@ def generate_resumir_curvas_usadas(params: dict[str, Any] | None = None) -> str:
     sources = _resolve_curve_sources(params)
     export_filter_min = _resolve_export_filter_min(params)
 
-    frames = [_procesar_curvas(path_csv=path_csv, anio=anio) for path_csv, anio in sources]
+    frames = [_procesar_curvas(path_csv=path_csv, programa=programa) for path_csv, programa in sources]
     df_resultado = pd.concat(frames, ignore_index=True)
     df_resultado = df_resultado.query("edad >= 17 and edad <= 68").copy()
 

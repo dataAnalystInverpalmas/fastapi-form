@@ -394,7 +394,9 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             description=(
                 "Consolida curvas Tika por programa/variedad y exporta resumen_curvas (MySQL + curvas_resumen.csv); "
                 "ademas construye curvas_resumen_todas.csv cruzando ld_curvas_clavel con ld_descarta_curva y ld_metas. "
-                "Parametro final_filter_value: 0 exporta todo, 1 exporta filtradas y seleccionadas, 2 solo seleccionadas."
+                "Parametro final_filter_value: 0 exporta todo, 1 exporta filtradas y seleccionadas, 2 solo seleccionadas. "
+                "curve_years es la etiqueta (prg) de cada archivo en curve_paths, en el mismo orden: un anio o un nombre "
+                "como sugerencia_khipus (curvas sugeridas por Tika); para quitar o cambiar una curva basta editar ambas listas."
             ),
             allows_parallel=True,
             timeout_seconds=1800,
@@ -402,10 +404,12 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             supports_params=True,
             default_params={
                 "curve_paths": [
-                    "//172.10.18.2/usuarios/Hilder/Data/tika-curvas2025.csv",
                     "//172.10.18.2/usuarios/Hilder/Data/tika-curvas2026v2.csv",
+                    "//172.10.18.2/usuarios/Hilder/Data/tika-curvas2027v3.csv",
+                    "//172.10.18.2/usuarios/Hilder/Data/tika-curvas_sugerida_khipus_siembra-2401-2643_prod-2501-2643.csv",
                 ],
-                "curve_years": [2025, 2026],
+                # Texto (no int) para que params.py acepte etiquetas no numericas.
+                "curve_years": ["2026", "2027", "sugerencia_khipus"],
                 "final_filter_value": 2,
             },
         ),

@@ -22,7 +22,15 @@ class EtlParamsTests(unittest.TestCase):
                 "//172.10.18.2/usuarios/Hilder/Data/tika-curvas2027v2.csv",
             ],
         )
-        self.assertEqual(params["curve_years"], [2026, 2027])
+        self.assertEqual(params["curve_years"], ["2026", "2027"])
+
+    def test_normalize_curve_years_accepts_named_program(self) -> None:
+        params = normalize_job_params(
+            "resumir_curvas_usadas",
+            {"curve_years": "2026, 2027, sugerencia_khipus"},
+        )
+
+        self.assertEqual(params["curve_years"], ["2026", "2027", "sugerencia_khipus"])
 
     def test_normalize_final_filter_value_as_int(self) -> None:
         params = normalize_job_params(
@@ -52,7 +60,7 @@ class EtlParamsTests(unittest.TestCase):
                 "//172.10.18.2/usuarios/Hilder/Data/tika-curvas2027v3.csv",
             ],
         )
-        self.assertEqual(params["curve_years"], [2026, 2027])
+        self.assertEqual(params["curve_years"], ["2026", "2027"])
 
     def test_settings_overrides_can_be_grouped_and_saved(self) -> None:
         # Respalda el archivo REAL .app_config_overrides.json (no un fixture)

@@ -36,10 +36,26 @@ class ResumirCurvasUsadasFilterTests(unittest.TestCase):
         self.assertEqual(
             resultado,
             [
-                ("//srv/curvas/2025.csv", 2025),
-                ("//srv/curvas/2026.csv", 2026),
+                ("//srv/curvas/2025.csv", "2025"),
+                ("//srv/curvas/2026.csv", "2026"),
             ],
         )
+
+    def test_resolve_curve_sources_accepts_named_program_and_int_years(self) -> None:
+        resultado = _resolve_curve_sources(
+            {
+                "curve_paths": ["//srv/a.csv", "//srv/b.csv"],
+                "curve_years": [2027, "sugerencia_khipus"],
+            }
+        )
+
+        self.assertEqual(resultado, [("//srv/a.csv", "2027"), ("//srv/b.csv", "sugerencia_khipus")])
+
+    def test_resolve_curve_sources_rejects_duplicated_labels(self) -> None:
+        with self.assertRaises(ValueError):
+            _resolve_curve_sources(
+                {"curve_paths": ["//srv/a.csv", "//srv/b.csv"], "curve_years": ["2026", 2026]}
+            )
 
     def test_build_curvas_resumen_todas_returns_empty_frame_when_source_table_has_no_rows(self) -> None:
         with patch("app.services.etl_jobs.resumir_curvas_usadas_generator.execute_query", return_value=[]):
