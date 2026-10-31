@@ -11,6 +11,7 @@ from app.services.etl.helpers import dataframe_to_sql, validate_columns
 from app.services.utils.dbf_reader import normalize_path
 from app.services.etl_jobs.compare_tika_produccion_generator import (
     _load_dates_and_variedades,
+    _load_demanda,
     _normalize_text,
     _parse_quantity,
     _process_esquejes_futuros,
@@ -70,7 +71,10 @@ def generate_compare_proyecciones_tika_report(params: dict[str, Any] | None = No
     lista libre de modelos_tika y produce solo el formato largo
     (fecha, flor, variedad, color, tallos, tipo, fuente) con
     tipo='Tika_<modelo>' y fuente en proyecciones/siembras/rotaciones/guardes,
-    pensado para comparar escenarios entre si. Se guarda en CSV y en la
+    pensado para comparar escenarios entre si. Se agrega ademas la demanda
+    (la misma de COMPARE_TIKA_DEMANDA_PATH que usa
+    'compare_tika_produccion_despachos') una sola vez, con tipo='demanda' y
+    fuente='demanda', porque no depende del modelo. Se guarda en CSV y en la
     tabla MySQL tika_compara_escenarios (se reemplaza en cada corrida).
     """
     modelos_tika = _resolve_modelos_tika(params)
@@ -89,6 +93,11 @@ def generate_compare_proyecciones_tika_report(params: dict[str, Any] | None = No
             frames.append(frame)
     if not frames:
         raise FileNotFoundError(f"No se encontro ningun archivo Tika para los modelos {modelos_tika}.")
+
+    df_demanda = _load_demanda(df_dates, df_vari)
+    df_demanda["tallos"] = pd.to_numeric(df_demanda["tallos"], errors="coerce").fillna(0).astype(float)
+    df_demanda["fuente"] = "demanda"
+    frames.append(df_demanda)
     df = pd.concat(frames, axis=0, ignore_index=True)
 
     output_csv = Path(normalize_path(settings.COMPARE_PROYECCIONES_TIKA_OUTPUT_PATH))

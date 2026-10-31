@@ -202,7 +202,7 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
         ETLJobDefinition(
             job_id="compare_proyecciones_tika",
             name="Comparar Proyecciones Tika (Escenarios)",
-            description="Compara varios modelos/escenarios Tika entre si en un CSV con campo fuente: proyecciones (proy1/2/3), siembras (esquejes_futuros), rotaciones (salvamento) y guardes (guarde). Tambien lo guarda en la tabla tika_compara_escenarios. Sin cruzar con despachos/demanda/quipus.",
+            description="Compara varios modelos/escenarios Tika entre si en un CSV con campo fuente: proyecciones (proy1/2/3), siembras (esquejes_futuros), rotaciones (salvamento) y guardes (guarde), mas la demanda (COMPARE_TIKA_DEMANDA_PATH, la misma de 'Comparar Tika Produccion Despachos'). Tambien lo guarda en la tabla tika_compara_escenarios. Sin cruzar con despachos/quipus.",
             allows_parallel=True,
             timeout_seconds=1200,
             runner=generate_compare_proyecciones_tika_report,
