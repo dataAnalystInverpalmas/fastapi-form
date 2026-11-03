@@ -67,7 +67,55 @@ Para probar que todo vuelve solo, reinicia el servidor, espera 2 o 3 minutos y a
 
 ## Actualizar a una versión nueva
 
-Copia el nuevo `imagenes/inverpalmas-portal.tar` a `~/inverpalmas-portal/imagenes/` y vuelve a correr `bash instalar.sh`. El `.env`, los ajustes y los logs se conservan.
+Con el despliegue automático (abajo) no hace falta: basta con hacer push a `main`.
+
+A mano: copia el nuevo `imagenes/inverpalmas-portal.tar` a `~/inverpalmas-portal/imagenes/` y vuelve a correr `bash instalar.sh`. El `.env`, los ajustes y los logs se conservan.
+
+> Si usas el despliegue automático, **no** corras `instalar.sh` con un `.tar` viejo: carga esa imagen encima de la última versión desplegada.
+
+## Despliegue automático (push a `main`)
+
+`scripts/autodeploy.sh` corre cada 5 minutos con cron. Si hay commits nuevos en `origin/main`:
+
+1. actualiza `~/fastapi-form` (solo avanza; si hay cambios locales, se detiene y lo anota),
+2. compila la imagen,
+3. corre las pruebas del backend dentro de la imagen; **si fallan, no despliega**,
+4. si hay jobs ETL en curso, espera a la siguiente vuelta para no cortarlos,
+5. reinicia la app con la imagen nueva,
+6. revisa `/health`; si no responde en 3 minutos, vuelve a la imagen anterior.
+
+Un commit que falló no se reintenta: se espera al siguiente push.
+
+### Instalar (una vez, en Ubuntu)
+
+```bash
+# 1. Clon del código (si no existe). git fetch tiene que funcionar sin pedir clave.
+git clone https://github.com/dataAnalystInverpalmas/fastapi-form.git ~/fastapi-form
+cd ~/fastapi-form && git checkout main && git fetch origin main
+
+# 2. cron encendido con WSL
+sudo apt install -y cron
+sudo systemctl enable --now cron
+
+# 3. Programar el script cada 5 minutos
+( crontab -l 2>/dev/null; echo '*/5 * * * * bash $HOME/fastapi-form/scripts/autodeploy.sh' ) | crontab -
+```
+
+Si el repositorio es privado, `git fetch` necesita credenciales guardadas (por ejemplo un token de GitHub de solo lectura con `git config --global credential.helper store`, o una deploy key SSH). Si pide clave, cron no puede responderla y el log lo muestra como `git fetch fallo`.
+
+Para probarlo sin esperar a cron: `bash ~/fastapi-form/scripts/autodeploy.sh`.
+
+### Revisar
+
+```bash
+tail -n 30 ~/inverpalmas-portal/logs/autodeploy.log   # qué hizo y por qué
+cat ~/inverpalmas-portal/.autodeploy/deployed          # commit desplegado
+cat ~/inverpalmas-portal/.autodeploy/tests.log         # salida de las últimas pruebas
+```
+
+Para volver a intentar un commit que falló (por ejemplo, tras arreglar un share): `rm ~/inverpalmas-portal/.autodeploy/failed`.
+
+Para apagarlo: `crontab -e` y borrar la línea de `autodeploy.sh`.
 
 ## Si algo falla
 
