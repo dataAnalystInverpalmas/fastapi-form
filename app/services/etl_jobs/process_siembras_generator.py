@@ -6,6 +6,7 @@ import pandas as pd
 
 from app.core.settings import settings
 from app.services.etl.helpers import execute_query
+from app.services.utils.dbf_reader import normalize_path
 
 
 def generate_process_siembras_report() -> str:
@@ -101,7 +102,7 @@ def generate_process_siembras_report() -> str:
         "ciclos": "ciclo",
     })
 
-    output_path = Path(settings.PROCESS_SIEMBRAS_OUTPUT_PATH)
+    output_path = Path(normalize_path(settings.PROCESS_SIEMBRAS_OUTPUT_PATH))
     output_path.parent.mkdir(parents=True, exist_ok=True)
     final_df.to_excel(output_path, index=False)
     return str(output_path)

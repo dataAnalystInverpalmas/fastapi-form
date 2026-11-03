@@ -4,6 +4,7 @@ from __future__ import annotations
 import pandas as pd
 
 from app.core.settings import settings
+from app.services.utils.dbf_reader import normalize_path
 from app.services.etl.helpers import (
     ajustar_a_jueves,
     dataframe_to_sql,
@@ -56,6 +57,7 @@ def generate_tabla_curvas_clavel() -> str:
 
     # Exportar a CSV
     df_processed["lunes"] = pd.to_datetime(df_processed["lunes"])
-    df_processed.to_csv(settings.TABLA_CURVAS_CLAVEL_OUTPUT_CSV, index=False)
+    output_csv = normalize_path(settings.TABLA_CURVAS_CLAVEL_OUTPUT_CSV)
+    df_processed.to_csv(output_csv, index=False)
 
-    return f"mysql:informes.ld_curvas_clavel | csv:{settings.TABLA_CURVAS_CLAVEL_OUTPUT_CSV}"
+    return f"mysql:informes.ld_curvas_clavel | csv:{output_csv}"

@@ -5,6 +5,7 @@ from pathlib import Path
 import pandas as pd
 
 from app.core.settings import settings
+from app.services.utils.dbf_reader import normalize_path
 from app.services.etl.helpers import (
     create_date_table,
     create_month_period_table,
@@ -112,7 +113,7 @@ def generate_bajas_exportado_reports() -> str:
     df_export["mes"] = df_export["periodo"].astype(str).str[4:6]
     df_export["porc_bajas"] = df_export["bajas"] / df_export["expble"]
 
-    output_dir = Path(settings.EXCEL_OUTPUT_DIR)
+    output_dir = Path(normalize_path(settings.EXCEL_OUTPUT_DIR))
     output_dir.mkdir(parents=True, exist_ok=True)
 
     output_summary = output_dir / "bajas_por_mes.csv"

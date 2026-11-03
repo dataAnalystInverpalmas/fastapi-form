@@ -35,6 +35,7 @@ import pandas as pd
 from sqlalchemy import text
 
 from app.core.settings import settings
+from app.services.utils.dbf_reader import normalize_path
 from app.services.utils.date_service import date_to_yyww, yyww_to_date
 from app.services.etl.helpers import _get_engine
 
@@ -410,7 +411,7 @@ def generate_anomalias_lonas(params: dict | None = None) -> str:
     # -----------------------------------------------------------------------
     # Guardar CSV
     # -----------------------------------------------------------------------
-    output_dir = Path(settings.ANOMALIAS_OUTPUT_DIR)
+    output_dir = Path(normalize_path(settings.ANOMALIAS_OUTPUT_DIR))
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / "anomalias_detectadas.csv"
 
