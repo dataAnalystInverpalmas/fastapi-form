@@ -8,10 +8,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any, get_args, get_origin
 
 from pydantic_settings import BaseSettings
+
+# Salidas cuyo nombre no lleva OUTPUT (ver Settings.redirect_outputs_to_dev).
+_EXTRA_OUTPUT_SETTINGS: frozenset[str] = frozenset({"DIRIGIDAS_RESUMEN_PATH"})
 
 
 class Settings(BaseSettings):
@@ -22,6 +26,16 @@ class Settings(BaseSettings):
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
     APP_ENV: str = "local"
+
+    # Modo desarrollo. Con DEV_OUTPUT_DIR definido, TODAS las rutas de salida
+    # (campos con OUTPUT en el nombre y los de _EXTRA_OUTPUT_SETTINGS) se
+    # redirigen a esa carpeta, incluso las guardadas desde /config: probar
+    # en un PC no pisa los archivos que usa produccion. Las rutas de entrada
+    # no cambian. Vacio en produccion.
+    DEV_OUTPUT_DIR: str = ""
+    # Jobs diarios de las 10:00. En desarrollo va en false para que el PC no
+    # los corra por su cuenta.
+    SCHEDULER_ENABLED: bool = True
 
     # Ruta por defecto del archivo DBF
     DEFAULT_DBF_PATH: str = r"\\172.10.18.2\produc\LD_BCULT\hijos2026.dbf"
@@ -522,9 +536,45 @@ class Settings(BaseSettings):
             coerced = self._coerce_value(key, value)
             setattr(self, key, coerced)
             applied[key] = coerced
+        # applied guarda lo que se pidio (es lo que /config persiste); la
+        # redireccion de desarrollo se aplica encima.
+        self.redirect_outputs_to_dev()
         return applied
 
+    def model_post_init(self, __context: Any) -> None:
+        self.redirect_outputs_to_dev()
+
+    @classmethod
+    def output_setting_names(cls) -> list[str]:
+        return [
+            name
+            for name, field in cls.model_fields.items()
+            if name != "DEV_OUTPUT_DIR"
+            and field.annotation in (str, "str")
+            and ("OUTPUT" in name or name in _EXTRA_OUTPUT_SETTINGS)
+        ]
+
+    def redirect_outputs_to_dev(self) -> None:
+        """Lleva cada ruta de salida a DEV_OUTPUT_DIR (carpetas: la carpeta
+        misma; archivos: DEV_OUTPUT_DIR/<nombre del archivo>). Plano a
+        proposito: si un job lee lo que otro escribio, en desarrollo lo sigue
+        encontrando."""
+        dev_dir = (self.DEV_OUTPUT_DIR or "").strip().rstrip("\\/")
+        if not dev_dir:
+            return
+        sep = "\\" if "\\" in dev_dir else "/"
+        for name in self.output_setting_names():
+            current = getattr(self, name)
+            if not isinstance(current, str) or not current.strip():
+                continue
+            if name.endswith("_DIR"):
+                setattr(self, name, dev_dir)
+            else:
+                filename = re.split(r"[\\/]", current.strip().rstrip("\\/"))[-1]
+                setattr(self, name, f"{dev_dir}{sep}{filename}")
+
     def reset_to_defaults(self) -> dict[str, Any]:
+        dev_output_dir = self.DEV_OUTPUT_DIR
         restored: dict[str, Any] = {}
         for key, field in type(self).model_fields.items():
             default_value = field.default
@@ -534,6 +584,10 @@ class Settings(BaseSettings):
             else:
                 setattr(self, key, None)
                 restored[key] = None
+        # Los defaults de fabrica traen DEV_OUTPUT_DIR vacio; se conserva el
+        # del entorno para que un reset en desarrollo no apunte a produccion.
+        self.DEV_OUTPUT_DIR = dev_output_dir
+        self.redirect_outputs_to_dev()
         return restored
 
 

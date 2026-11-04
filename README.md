@@ -121,6 +121,62 @@ En Docker, `docker compose up --build` construye el frontend, inicia MySQL y lev
 
 ---
 
+## Flujo de trabajo (desarrollo → producción)
+
+```
+rama corta  →  pruebas en tu PC  →  PR a main  →  GitHub corre las pruebas  →  merge  →  el servidor despliega solo
+```
+
+- **`main` es producción.** No se trabaja directo en `main`: lo que llega ahí se despliega en minutos (`scripts/autodeploy.sh`).
+- **Una rama por cambio**, corta (`fix-siembras-ruta`, `job-balance-masas`), con su PR. Así cada cambio se revisa y se puede deshacer por separado.
+
+### 1. Entorno de desarrollo separado (una vez)
+
+En tu PC, la app no debe escribir en la base ni en las carpetas de producción.
+
+1. Crea la base de desarrollo en MariaDB (con un usuario administrador):
+   ```sql
+   CREATE DATABASE informes_dev CHARACTER SET utf8mb4;
+   GRANT ALL ON informes_dev.* TO 'tu_usuario'@'%';
+   ```
+   Para tener datos con los que probar, copia la de producción (solo lectura sobre `informes`):
+   ```bash
+   mysqldump -h 172.10.18.128 -u tu_usuario -p informes | mysql -h 172.10.18.128 -u tu_usuario -p informes_dev
+   ```
+2. Crea la carpeta `\\172.10.18.2\Usuarios\Outputs_dev`.
+3. Copia las líneas de [`.env.dev.example`](.env.dev.example) al final de tu `.env` local:
+   - `DB_NAME=informes_dev`: base propia.
+   - `DEV_OUTPUT_DIR`: **todas** las salidas (Excel/CSV) van a esa carpeta, incluso las rutas guardadas desde `/config`. Las entradas (DBF, demanda) se siguen leyendo de las rutas reales.
+   - `SCHEDULER_ENABLED=false` y `SMTP_ENABLED=false`: el PC no corre los jobs de las 10:00 ni manda correos.
+
+Al arrancar, el log muestra `MODO DESARROLLO: las salidas de los jobs van a ...`. Si no aparece, la app está usando las rutas de producción.
+
+### 2. Probar antes de abrir el PR
+
+```bash
+venv\Scripts\python.exe -m unittest discover -s app\services\tests -p "test_*.py"
+```
+
+Si el cambio toca rutas, archivos o el arranque, pruébalo también en Docker (Linux, igual que el servidor), porque en Windows hay errores que no se ven:
+
+```bash
+docker compose up --build
+```
+
+Este compose usa tu mismo `.env`, así que también queda en modo desarrollo.
+
+### 3. PR y merge
+
+Al abrir el PR hacia `main`, GitHub Actions ([`.github/workflows/pruebas.yml`](.github/workflows/pruebas.yml)) corre las pruebas del backend y compila el frontend. Solo se fusiona en verde.
+
+### 4. Producción
+
+Después del merge, el servidor despliega solo en unos 5 minutos: vuelve a correr las pruebas, espera a que no haya jobs en curso y regresa a la versión anterior si la app no arranca. El log queda en `~/inverpalmas-portal/logs/autodeploy.log` (ver [deploy/windows-server/LEEME-INSTALACION.md](deploy/windows-server/LEEME-INSTALACION.md)).
+
+Para deshacer un cambio que ya está en producción, revierte el commit en `main` (`git revert <commit>` en una rama, PR y merge). El siguiente despliegue lo retira.
+
+---
+
 ## Tests
 
 ```bash

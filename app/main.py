@@ -108,9 +108,14 @@ _FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     bootstrap_jobs()
-    for _job_id in _DAILY_JOBS:
-        _schedule_daily_job(_job_id)
-    _schedule_sequential_daily_jobs(_SEQUENTIAL_DAILY_JOBS)
+    if settings.SCHEDULER_ENABLED:
+        for _job_id in _DAILY_JOBS:
+            _schedule_daily_job(_job_id)
+        _schedule_sequential_daily_jobs(_SEQUENTIAL_DAILY_JOBS)
+    else:
+        _logger.warning("SCHEDULER_ENABLED=false: no se programan los jobs diarios de las 10:00.")
+    if settings.DEV_OUTPUT_DIR.strip():
+        _logger.warning("MODO DESARROLLO: las salidas de los jobs van a %s", settings.DEV_OUTPUT_DIR)
     _schedule_stale_runs_sweeper()
     _scheduler.start()
     yield
