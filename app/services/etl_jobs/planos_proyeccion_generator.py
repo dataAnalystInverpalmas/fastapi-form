@@ -38,6 +38,7 @@ from __future__ import annotations
 import datetime
 import logging
 from pathlib import Path
+import zipfile
 
 import mysql.connector
 import openpyxl
@@ -47,6 +48,7 @@ from app.core.mail import MailNotConfiguredError, send_email
 from app.core.settings import settings
 from app.services.utils.date_service import get_current_iso_week, get_next_week_thursday, yyww_series_to_date
 from app.services.utils.dbf_reader import normalize_path
+from app.services.etl import repository as etl_repository
 from app.services.etl.helpers import dataframe_to_sql, execute_query, normalize_finca_series, validate_columns
 
 logger = logging.getLogger(__name__)
@@ -318,8 +320,24 @@ def _load_quipus_excel() -> pd.DataFrame:
         raise FileNotFoundError(
             f"No existe {excel_path}; corre primero el job 'quipus_vs_proy' de esta semana."
         )
+    _ensure_quipus_vs_proy_not_running()
     _ensure_datos_newer_than_quipus_csv(excel_path)
-    return pd.read_excel(excel_path, sheet_name=QUIPUS_EXCEL_SHEET_NAME)
+    try:
+        return pd.read_excel(excel_path, sheet_name=QUIPUS_EXCEL_SHEET_NAME, engine="openpyxl")
+    except zipfile.BadZipFile as exc:
+        raise RuntimeError(
+            f"{excel_path.name} esta incompleto o daniado (no es un .xlsx valido). Si el paso 1 "
+            "(Quipus vs Proyecciones) se estaba ejecutando, espera a que termine y vuelve a correr este paso."
+        ) from exc
+
+
+def _ensure_quipus_vs_proy_not_running() -> None:
+    """quipus_vs_proy reescribe datos.xlsx; leerlo mientras corre da un archivo a medio escribir."""
+    if etl_repository.count_running_jobs("quipus_vs_proy") > 0:
+        raise RuntimeError(
+            "El paso 1 (Quipus vs Proyecciones) se esta ejecutando y esta reescribiendo datos.xlsx; "
+            "espera a que termine y vuelve a correr este paso."
+        )
 
 
 def _quipus_csv_path(semana: int | None = None) -> Path:

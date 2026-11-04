@@ -32,6 +32,45 @@ DESDE_TODO = pd.Timestamp("2025-01-01")
 
 
 class PlanosProyeccionGeneratorTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # Sin MySQL en las pruebas: por defecto quipus_vs_proy no esta corriendo.
+        running_patch = patch(
+            "app.services.etl_jobs.planos_proyeccion_generator.etl_repository.count_running_jobs",
+            return_value=0,
+        )
+        self.mock_count_running = running_patch.start()
+        self.addCleanup(running_patch.stop)
+
+    def test_load_quipus_excel_raises_while_quipus_vs_proy_is_running(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            excel_path = Path(tmp_dir) / "datos.xlsx"
+            self._build_datos_df().to_excel(excel_path, index=False, sheet_name="datos")
+            self.mock_count_running.return_value = 1
+            with patch(
+                "app.services.etl_jobs.planos_proyeccion_generator.settings.QUIPUS_EXCEL_OUTPUT_PATH",
+                str(excel_path),
+            ):
+                with self.assertRaises(RuntimeError) as ctx:
+                    _load_quipus_excel()
+            self.assertIn("se esta ejecutando", str(ctx.exception))
+            self.mock_count_running.assert_called_with("quipus_vs_proy")
+
+    def test_load_quipus_excel_explains_half_written_file(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            excel_path = Path(tmp_dir) / "datos.xlsx"
+            excel_path.write_bytes(b"no es un xlsx")
+            with patch(
+                "app.services.etl_jobs.planos_proyeccion_generator.settings.QUIPUS_EXCEL_OUTPUT_PATH",
+                str(excel_path),
+            ):
+                with self.assertRaises(RuntimeError) as ctx:
+                    _load_quipus_excel()
+            self.assertIn("incompleto", str(ctx.exception))
+
     def _build_raw(self) -> pd.DataFrame:
         return pd.DataFrame(
             {
