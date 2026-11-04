@@ -17,6 +17,7 @@ from app.services.etl_jobs.planos_proyeccion_generator import (
     _fill_subir_proyeccion_workbook,
     _hoja1_week_range,
     _load_base_from_staging,
+    _ensure_datos_newer_than_quipus_csv,
     _load_quipus_excel,
     _notify_tika_ajuste,
     _transform_base_sheet,
@@ -435,6 +436,29 @@ class PlanosProyeccionGeneratorTests(unittest.TestCase):
             ):
                 with self.assertRaises(FileNotFoundError):
                     _load_quipus_excel()
+
+    def test_ensure_datos_newer_than_quipus_csv_raises_when_datos_is_stale(self) -> None:
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            excel_path = Path(tmp_dir) / "datos.xlsx"
+            csv_path = Path(tmp_dir) / "tika-quipus2645.csv"
+            excel_path.write_text("x")
+            csv_path.write_text("x")
+            os.utime(excel_path, (1_000_000, 1_000_000))
+            os.utime(csv_path, (2_000_000, 2_000_000))
+
+            with self.assertRaises(RuntimeError) as ctx:
+                _ensure_datos_newer_than_quipus_csv(excel_path, csv_path)
+            self.assertIn("Quipus vs Proyecciones", str(ctx.exception))
+
+            # datos.xlsx regenerado despues del CSV: pasa.
+            os.utime(excel_path, (3_000_000, 3_000_000))
+            _ensure_datos_newer_than_quipus_csv(excel_path, csv_path)
+
+            # Sin CSV de la semana no hay con que comparar: pasa.
+            _ensure_datos_newer_than_quipus_csv(excel_path, Path(tmp_dir) / "no_existe.csv")
 
     def test_load_quipus_excel_reads_hoja_datos(self) -> None:
         import tempfile

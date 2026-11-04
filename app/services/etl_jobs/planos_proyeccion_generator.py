@@ -45,7 +45,7 @@ import pandas as pd
 
 from app.core.mail import MailNotConfiguredError, send_email
 from app.core.settings import settings
-from app.services.utils.date_service import get_next_week_thursday, yyww_series_to_date
+from app.services.utils.date_service import get_current_iso_week, get_next_week_thursday, yyww_series_to_date
 from app.services.utils.dbf_reader import normalize_path
 from app.services.etl.helpers import dataframe_to_sql, execute_query, normalize_finca_series, validate_columns
 
@@ -318,7 +318,38 @@ def _load_quipus_excel() -> pd.DataFrame:
         raise FileNotFoundError(
             f"No existe {excel_path}; corre primero el job 'quipus_vs_proy' de esta semana."
         )
+    _ensure_datos_newer_than_quipus_csv(excel_path)
     return pd.read_excel(excel_path, sheet_name=QUIPUS_EXCEL_SHEET_NAME)
+
+
+def _quipus_csv_path(semana: int | None = None) -> Path:
+    """tika-quipus<AASS>.csv de la semana (por defecto la ISO actual)."""
+    semana = semana or get_current_iso_week()
+    return Path(
+        normalize_path(f"{settings.QUIPUS_TIKA_DIR}/{settings.QUIPUS_TIKA_FILE_PREFIX}{semana}.csv")
+    )
+
+
+def _ensure_datos_newer_than_quipus_csv(excel_path: Path, quipus_csv: Path | None = None) -> None:
+    """Falla si datos.xlsx es mas viejo que tika-quipus<AASS>.csv de la semana.
+
+    El CSV se reemplaza despues de subir los ajustes a Tika (trae la
+    Proyección khipus ajustada); si quipus_vs_proy no se volvio a correr,
+    datos.xlsx sigue con la proyeccion anterior y Hoja1 saldria sin ajustar.
+    Si el CSV de la semana no existe no se valida (no hay con que comparar).
+    """
+    quipus_csv = quipus_csv or _quipus_csv_path()
+    if not quipus_csv.exists():
+        return
+    if excel_path.stat().st_mtime < quipus_csv.stat().st_mtime:
+        fmt = "%Y-%m-%d %H:%M"
+        datos_ts = datetime.datetime.fromtimestamp(excel_path.stat().st_mtime).strftime(fmt)
+        csv_ts = datetime.datetime.fromtimestamp(quipus_csv.stat().st_mtime).strftime(fmt)
+        raise RuntimeError(
+            f"{excel_path.name} ({datos_ts}) es mas viejo que {quipus_csv.name} ({csv_ts}): la Proyección "
+            "khipus ajustada aun no esta en datos.xlsx. Vuelve a correr el paso 1 (Quipus vs Proyecciones) "
+            "y luego este paso."
+        )
 
 
 def _load_variedad_codigos() -> pd.DataFrame:
