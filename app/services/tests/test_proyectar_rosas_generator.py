@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 
+from app.core.settings import settings
 from app.services.etl_jobs.proyectar_rosas_generator import (
     _build_projection_summary,
     _load_arre_data,
@@ -21,6 +22,18 @@ from app.services.etl_jobs.proyectar_rosas_generator import (
 
 
 class ProyectarRosasGeneratorDbTests(unittest.TestCase):
+    def setUp(self):
+        # generate_proyectar_rosas_report escribe en PROYECTAR_ROSAS_OUTPUT_PATH:
+        # sin esto, correr las pruebas en un PC pisaba el CSV real del share
+        # (y en CI fallaban por permisos en /mnt/smb).
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        output_patch = patch.object(
+            settings, "PROYECTAR_ROSAS_OUTPUT_PATH", str(Path(tmp.name) / "proyeccion_rosas.csv")
+        )
+        output_patch.start()
+        self.addCleanup(output_patch.stop)
+
     @patch("app.services.etl_jobs.proyectar_rosas_generator.db_connection")
     def test_load_sources_from_db(self, db_connection_mock):
         connection = MagicMock()
