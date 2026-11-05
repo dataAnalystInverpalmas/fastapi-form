@@ -154,6 +154,35 @@ start_app() {
   exec "${cmd[@]}"
 }
 
+# Espera a que la base de datos acepte conexiones TCP antes de arrancar
+# uvicorn. Al iniciar, la app crea sus tablas (bootstrap_jobs); si MariaDB aun
+# no responde (p. ej. tras un corte de luz, cuando este servidor arranca antes
+# que el de la base), los workers mueren pero el proceso principal de uvicorn
+# sigue vivo: Docker ve el contenedor "Up", no lo reinicia y nadie atiende el
+# puerto. DB_WAIT_SECONDS=0 (por defecto) espera sin limite.
+wait_for_db() {
+  local host="${DB_HOST:-}"
+  local port="${DB_PORT:-3306}"
+  local max_wait="${DB_WAIT_SECONDS:-0}"
+  local interval=5
+  local waited=0
+
+  [[ -z "$host" ]] && return 0
+
+  until timeout 3 bash -c "exec 3<>/dev/tcp/$host/$port" 2>/dev/null; do
+    if (( max_wait > 0 && waited >= max_wait )); then
+      log "La base de datos $host:$port sigue sin responder tras ${waited}s; se inicia la app de todas formas"
+      return 0
+    fi
+    if (( waited % 60 == 0 )); then
+      log "Esperando a la base de datos $host:$port (${waited}s)..."
+    fi
+    sleep "$interval"
+    waited=$((waited + interval))
+  done
+  log "Base de datos $host:$port disponible"
+}
+
 mount_all_shares || true
 
 if healthcheck_mounts; then
@@ -162,4 +191,5 @@ else
   log "Faltan shares por montar; se inicia la aplicacion de todas formas (los jobs que dependan de esas rutas fallaran con mensajes claros). Revisa /health para ver cual falta."
 fi
 
+wait_for_db
 start_app

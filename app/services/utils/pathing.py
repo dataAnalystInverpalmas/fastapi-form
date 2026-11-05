@@ -130,7 +130,9 @@ def normalize_path_for_runtime(file_path: str) -> str:
     if candidate.startswith("//"):
         return resolve_network_path("\\\\" + candidate[2:].replace("/", "\\"))
 
-    if is_docker_runtime():
+    # Separadores segun el sistema real: fuera de Docker tambien puede ser
+    # Linux (CI de GitHub, WSL), y alli "\tmp\x.csv" no existe.
+    if is_docker_runtime() or os.name != "nt":
         return candidate.replace("\\", "/")
 
     return candidate.replace("/", "\\")
