@@ -2,7 +2,10 @@
 
 from datetime import datetime
 import json
+import time
 from typing import Any
+
+import mysql.connector
 
 from app.core.db import db_connection
 from app.services.etl.definition import ETLJobDefinition
@@ -14,6 +17,36 @@ STATUS_RUNNING = "running"
 STATUS_SUCCESS = "success"
 STATUS_FAILED = "failed"
 STATUS_CANCELLED = "cancelado"
+
+# Errores de bloqueo que MariaDB pide reintentar ("try restarting transaction").
+_RETRYABLE_LOCK_ERRNOS = {1213, 1205}  # deadlock, lock wait timeout
+_WRITE_ATTEMPTS = 4
+_WRITE_RETRY_BASE_SECONDS = 0.2
+
+
+def _execute_write(sql: str, params: tuple[Any, ...]) -> int:
+    """Ejecuta un UPDATE sobre etl_job_runs reintentando si hay deadlock.
+
+    Sin esto, un choque con el barrido de corridas colgadas (cada minuto) hacia
+    fallar el UPDATE que marca 'success' y el job quedaba como fallido aunque
+    ya habia escrito todos sus archivos y tablas.
+    """
+    for attempt in range(1, _WRITE_ATTEMPTS + 1):
+        with db_connection() as connection:
+            cursor = connection.cursor()
+            try:
+                cursor.execute(sql, params)
+                affected = int(cursor.rowcount or 0)
+                connection.commit()
+                return affected
+            except mysql.connector.Error as exc:
+                connection.rollback()
+                if exc.errno not in _RETRYABLE_LOCK_ERRNOS or attempt == _WRITE_ATTEMPTS:
+                    raise
+            finally:
+                cursor.close()
+        time.sleep(_WRITE_RETRY_BASE_SECONDS * attempt)
+    return 0
 
 
 def _column_exists(table_name: str, column_name: str) -> bool:
@@ -219,83 +252,66 @@ def get_last_job_params(job_id: str) -> dict[str, Any]:
 
 
 def update_run_started(run_id: int) -> None:
-    with db_connection() as connection:
-        cursor = connection.cursor()
-        cursor.execute(
-            """
-            UPDATE etl_job_runs
-            SET status = %s, started_at = %s
-            WHERE run_id = %s
-            """,
-            (STATUS_RUNNING, get_bogota_now(), run_id),
-        )
-        connection.commit()
-        cursor.close()
+    _execute_write(
+        """
+        UPDATE etl_job_runs
+        SET status = %s, started_at = %s
+        WHERE run_id = %s
+        """,
+        (STATUS_RUNNING, get_bogota_now(), run_id),
+    )
 
 
 def update_run_success(run_id: int, output_path: str | None) -> None:
     """Marca la corrida como exitosa, salvo que ya haya sido cancelada por el usuario."""
     now = get_bogota_now()
-    with db_connection() as connection:
-        cursor = connection.cursor()
-        cursor.execute(
-            """
-            UPDATE etl_job_runs
-            SET
-                status = %s,
-                finished_at = %s,
-                duration_seconds = TIMESTAMPDIFF(SECOND, started_at, %s),
-                output_path = %s,
-                error_message = NULL
-            WHERE run_id = %s AND status != %s
-            """,
-            (STATUS_SUCCESS, now, now, output_path, run_id, STATUS_CANCELLED),
-        )
-        connection.commit()
-        cursor.close()
+    _execute_write(
+        """
+        UPDATE etl_job_runs
+        SET
+            status = %s,
+            finished_at = %s,
+            duration_seconds = TIMESTAMPDIFF(SECOND, started_at, %s),
+            output_path = %s,
+            error_message = NULL
+        WHERE run_id = %s AND status != %s
+        """,
+        (STATUS_SUCCESS, now, now, output_path, run_id, STATUS_CANCELLED),
+    )
 
 
 def update_run_failed(run_id: int, error_message: str) -> None:
     """Marca la corrida como fallida, salvo que ya haya sido cancelada por el usuario."""
     now = get_bogota_now()
-    with db_connection() as connection:
-        cursor = connection.cursor()
-        cursor.execute(
-            """
-            UPDATE etl_job_runs
-            SET
-                status = %s,
-                finished_at = %s,
-                duration_seconds = TIMESTAMPDIFF(SECOND, started_at, %s),
-                error_message = %s
-            WHERE run_id = %s AND status != %s
-            """,
-            (STATUS_FAILED, now, now, error_message[:2000], run_id, STATUS_CANCELLED),
-        )
-        connection.commit()
-        cursor.close()
+    _execute_write(
+        """
+        UPDATE etl_job_runs
+        SET
+            status = %s,
+            finished_at = %s,
+            duration_seconds = TIMESTAMPDIFF(SECOND, started_at, %s),
+            error_message = %s
+        WHERE run_id = %s AND status != %s
+        """,
+        (STATUS_FAILED, now, now, error_message[:2000], run_id, STATUS_CANCELLED),
+    )
 
 
 def update_run_cancelled(run_id: int, message: str) -> bool:
     """Marca una corrida 'queued'/'running' como cancelada. Devuelve False si ya habia terminado."""
     now = get_bogota_now()
-    with db_connection() as connection:
-        cursor = connection.cursor()
-        cursor.execute(
-            """
-            UPDATE etl_job_runs
-            SET
-                status = %s,
-                finished_at = %s,
-                duration_seconds = TIMESTAMPDIFF(SECOND, started_at, %s),
-                error_message = %s
-            WHERE run_id = %s AND status IN (%s, %s)
-            """,
-            (STATUS_CANCELLED, now, now, message[:2000], run_id, STATUS_QUEUED, STATUS_RUNNING),
-        )
-        affected = int(cursor.rowcount or 0)
-        connection.commit()
-        cursor.close()
+    affected = _execute_write(
+        """
+        UPDATE etl_job_runs
+        SET
+            status = %s,
+            finished_at = %s,
+            duration_seconds = TIMESTAMPDIFF(SECOND, started_at, %s),
+            error_message = %s
+        WHERE run_id = %s AND status IN (%s, %s)
+        """,
+        (STATUS_CANCELLED, now, now, message[:2000], run_id, STATUS_QUEUED, STATUS_RUNNING),
+    )
     return affected > 0
 
 
@@ -343,15 +359,19 @@ def count_running_jobs(job_id: str) -> int:
     return int(row[0] if row else 0)
 
 
-def fail_stale_runs(job_id: str, timeout_seconds: int) -> int:
-    """Marca como fallidas corridas queued/running que excedieron su timeout."""
-    now = get_bogota_now()
-    timeout_value = max(int(timeout_seconds or 0), 1)
-    stale_message = f"Timeout detectado automaticamente ({timeout_value} s)."
+def _fail_runs_by_id(stale: list[tuple[int, int]], now: datetime) -> int:
+    """Marca como fallidas las corridas dadas como (run_id, timeout_seconds).
 
-    with db_connection() as connection:
-        cursor = connection.cursor()
-        cursor.execute(
+    Se actualiza por llave primaria (run_id), igual que update_run_success. Un
+    UPDATE filtrado por status bloqueaba primero el indice idx_etl_runs_status y
+    luego la fila: orden inverso al de update_run_success, lo que producia
+    deadlocks cuando ambos coincidian en el mismo segundo. Las condiciones se
+    repiten en el UPDATE por si la corrida termino entre el SELECT y el UPDATE.
+    """
+    affected_rows = 0
+    for run_id, timeout_seconds in stale:
+        timeout_value = max(int(timeout_seconds or 0), 1)
+        affected_rows += _execute_write(
             """
             UPDATE etl_job_runs
             SET
@@ -359,7 +379,7 @@ def fail_stale_runs(job_id: str, timeout_seconds: int) -> int:
                 finished_at = %s,
                 duration_seconds = TIMESTAMPDIFF(SECOND, started_at, %s),
                 error_message = %s
-            WHERE job_id = %s
+            WHERE run_id = %s
               AND status IN (%s, %s)
               AND started_at <= DATE_SUB(%s, INTERVAL %s SECOND)
             """,
@@ -367,54 +387,63 @@ def fail_stale_runs(job_id: str, timeout_seconds: int) -> int:
                 STATUS_FAILED,
                 now,
                 now,
-                stale_message,
-                job_id,
+                f"Timeout detectado automaticamente ({timeout_value} s).",
+                run_id,
                 STATUS_QUEUED,
                 STATUS_RUNNING,
                 now,
                 timeout_value,
             ),
         )
-        affected_rows = int(cursor.rowcount or 0)
-        connection.commit()
+    return affected_rows
+
+
+def fail_stale_runs(job_id: str, timeout_seconds: int) -> int:
+    """Marca como fallidas corridas queued/running que excedieron su timeout."""
+    now = get_bogota_now()
+    timeout_value = max(int(timeout_seconds or 0), 1)
+
+    # Lectura sin bloqueos: solo identifica las candidatas.
+    with db_connection() as connection:
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            SELECT run_id
+            FROM etl_job_runs
+            WHERE job_id = %s
+              AND status IN (%s, %s)
+              AND started_at <= DATE_SUB(%s, INTERVAL %s SECOND)
+            """,
+            (job_id, STATUS_QUEUED, STATUS_RUNNING, now, timeout_value),
+        )
+        stale = [(int(row[0]), timeout_value) for row in cursor.fetchall()]
         cursor.close()
 
-    return affected_rows
+    return _fail_runs_by_id(stale, now)
 
 
 def fail_all_stale_runs() -> int:
     """Marca como fallidas todas las corridas queued/running que excedieron el timeout configurado del job."""
     now = get_bogota_now()
 
+    # Lectura sin bloqueos: solo identifica las candidatas.
     with db_connection() as connection:
         cursor = connection.cursor()
         cursor.execute(
             """
-            UPDATE etl_job_runs AS r
+            SELECT r.run_id, j.timeout_seconds
+            FROM etl_job_runs AS r
             JOIN etl_jobs AS j
               ON j.job_id = r.job_id
-            SET
-                r.status = %s,
-                r.finished_at = %s,
-                r.duration_seconds = TIMESTAMPDIFF(SECOND, r.started_at, %s),
-                r.error_message = CONCAT('Timeout detectado automaticamente (', j.timeout_seconds, ' s).')
             WHERE r.status IN (%s, %s)
               AND r.started_at <= DATE_SUB(%s, INTERVAL GREATEST(j.timeout_seconds, 1) SECOND)
             """,
-            (
-                STATUS_FAILED,
-                now,
-                now,
-                STATUS_QUEUED,
-                STATUS_RUNNING,
-                now,
-            ),
+            (STATUS_QUEUED, STATUS_RUNNING, now),
         )
-        affected_rows = int(cursor.rowcount or 0)
-        connection.commit()
+        stale = [(int(row[0]), int(row[1] or 0)) for row in cursor.fetchall()]
         cursor.close()
 
-    return affected_rows
+    return _fail_runs_by_id(stale, now)
 
 
 def list_recent_runs(limit: int = 50) -> list[dict[str, Any]]:
