@@ -124,7 +124,8 @@ Para apagarlo: `crontab -e` y borrar la línea de `autodeploy.sh`.
 | Un share aparece sin montar en `/health` | Usuario y clave SMB en `.env`; `docker logs inverpalmas-portal` muestra el error de `mount`. |
 | Error de base de datos en el log | Permisos del usuario en MariaDB para la IP del servidor; `DB_HOST`/`DB_PASSWORD` en `.env`. |
 | Funciona en el servidor pero no desde otros equipos | `netsh interface portproxy show v4tov4` debe mostrar 8000 apuntando a la IP de WSL; revisar `C:\ProgramData\InverpalmasPortal\arranque.log`. |
-| Tras reiniciar no responde | Programador de tareas: que **Inverpalmas Portal - WSL** esté *En ejecución*. |
+| Tras reiniciar no responde | Programador de tareas: que **Inverpalmas Portal - WSL** esté *En ejecución* (si al lanzarla a mano da `2147946720`, es que ya estaba corriendo). Luego `docker logs --tail 30 inverpalmas-portal`: si repite `Esperando a la base de datos`, MariaDB (172.10.18.128) aún no responde; la app arranca sola en cuanto vuelva. |
+| Tras un corte de luz los shares aparecen sin montar en `/health` | El servidor de archivos (172.10.18.2) volvió después que este. Cuando ya responda: `docker compose restart fastapi-app`. |
 
 ## Comandos útiles (en Ubuntu, dentro de `~/inverpalmas-portal`)
 
