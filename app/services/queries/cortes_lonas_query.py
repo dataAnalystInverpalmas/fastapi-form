@@ -25,7 +25,13 @@ def _table_columns(table_name: str) -> set[str]:
     return cols
 
 
-def exporta_cortes_lonas_excel(fecha_inicio: str, fecha_fin: str) -> str:
+def exporta_cortes_lonas_excel(
+    fecha_inicio: str,
+    fecha_fin: str,
+    flores: list[str] | None = None,
+    nombre_archivo: str = "ExportaCortes",
+    cosecha_vacia: bool = False,
+) -> str:
     try:
         ini = pd.to_datetime(fecha_inicio, errors="raise").normalize()
         fin = pd.to_datetime(fecha_fin, errors="raise").normalize()
@@ -42,7 +48,10 @@ def exporta_cortes_lonas_excel(fecha_inicio: str, fecha_fin: str) -> str:
     tallos_col = "tallos" if "tallos" in cols else "lonas"
     fecha_siembra_col = "fecha_siembra" if "fecha_siembra" in cols else "fsiemb"
 
-    flores_sql = ", ".join(f"'{flor}'" for flor in settings.CORTES_LONAS_FLOR_FILTER)
+    flores = list(flores if flores is not None else settings.CORTES_LONAS_FLOR_FILTER)
+    if not flores:
+        raise ValueError("No hay codigos de flor configurados para exportar cortes.")
+    flores_sql = ", ".join(f"'{flor}'" for flor in flores)
 
     joins_extra = ""
     where_flor = ""
@@ -86,6 +95,9 @@ def exporta_cortes_lonas_excel(fecha_inicio: str, fecha_fin: str) -> str:
 
     df = df[df["cantidad"] > 0].copy()
     df["variedad"] = df["variedad"].str.replace(r"_$", "", regex=True)
+    if cosecha_vacia:
+        # Rosas: la columna cosecha se exporta vacia (no se agrupa por ella).
+        df.insert(df.columns.get_loc("bloque") + 1, "cosecha", "")
 
     finca_map: dict = {}
     for codigo, nombre in settings.CORTES_LONAS_FINCA_MAP.items():
@@ -98,7 +110,7 @@ def exporta_cortes_lonas_excel(fecha_inicio: str, fecha_fin: str) -> str:
     output_dir = Path(normalize_path(settings.EXCEL_OUTPUT_DIR))
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    filename = f"processed_cortes_ExportaCortes_{ini.strftime('%Y%m%d')}_{fin.strftime('%Y%m%d')}.xlsx"
+    filename = f"processed_cortes_{nombre_archivo}_{ini.strftime('%Y%m%d')}_{fin.strftime('%Y%m%d')}.xlsx"
     output_path = output_dir / filename
 
     df.to_excel(output_path, index=False, sheet_name="cortes")
@@ -110,5 +122,16 @@ def generate_cortes_lonas(params: dict | None = None) -> str:
     output_path = exporta_cortes_lonas_excel(
         fecha_inicio=params.get("fecha_inicio"),
         fecha_fin=params.get("fecha_fin"),
+    )
+    return f"xlsx:{output_path}"
+
+def generate_cortes_lonas_rosas(params: dict | None = None) -> str:
+    params = params or {}
+    output_path = exporta_cortes_lonas_excel(
+        fecha_inicio=params.get("fecha_inicio"),
+        fecha_fin=params.get("fecha_fin"),
+        flores=settings.CORTES_LONAS_ROSAS_FLOR_FILTER,
+        nombre_archivo="ExportaCortesRosas",
+        cosecha_vacia=True,
     )
     return f"xlsx:{output_path}"

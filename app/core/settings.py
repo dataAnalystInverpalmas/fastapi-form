@@ -364,6 +364,7 @@ class Settings(BaseSettings):
 
     # ETL cortes/lonas
     CORTES_LONAS_FLOR_FILTER: list[str] = ["CLA", "CM0"]
+    CORTES_LONAS_ROSAS_FLOR_FILTER: list[str] = ["ROS", "ROC"]
     CORTES_LONAS_FINCA_MAP: dict[str, str] = {"001": "INVERPALMAS", "002": "PALERMO"}
 
     # ETL informe jefes de area consolidado

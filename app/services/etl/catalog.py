@@ -17,7 +17,7 @@ from app.services.dbf_loaders import (
 )
 from app.services.tika_loaders import load_tika_demanda
 from app.services.etl.definition import ETLJobDefinition
-from app.services.queries.cortes_lonas_query import generate_cortes_lonas
+from app.services.queries.cortes_lonas_query import generate_cortes_lonas, generate_cortes_lonas_rosas
 from app.services.etl_jobs import (
     generate_anomalias_lonas,
     generate_aportes_grados,
@@ -382,6 +382,19 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             allows_parallel=True,
             timeout_seconds=900,
             runner=generate_cortes_lonas,
+            supports_params=True,
+            default_params=dict(default_week_range),
+            dependency_group="Analítica",
+            flow_group="04 - Analitica",
+            weekly_dates=True,
+        ),
+        ETLJobDefinition(
+            job_id="exporta_cortes_lonas_rosas",
+            name="Exportar Cortes de Lonas Rosas",
+            description="Genera un Excel con cortes de rosas (ld_lonas) agrupados por variedad/finca/bloque y semana en un rango de fechas; la columna cosecha va vacia.",
+            allows_parallel=True,
+            timeout_seconds=900,
+            runner=generate_cortes_lonas_rosas,
             supports_params=True,
             default_params=dict(default_week_range),
             dependency_group="Analítica",
