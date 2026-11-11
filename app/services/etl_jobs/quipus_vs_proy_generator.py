@@ -177,7 +177,7 @@ def _load_plano_data(semana_actual: int) -> tuple[pd.DataFrame, pd.DataFrame, pd
     state_col = _extract_first_existing(df_plano, ["estado"])
     finca_col = _extract_first_existing(df_plano, ["finca"])
     variedad_col = _extract_first_existing(df_plano, ["variedad"])
-    semana_col = _extract_first_existing(df_plano, ["semana_siembra", "semana"])
+    semana_col = _extract_first_existing(df_plano, ["semana_de_siembra", "semana_siembra", "semana"])
 
     if block_col != "bloque":
         df_plano = df_plano.rename(columns={block_col: "bloque"})
