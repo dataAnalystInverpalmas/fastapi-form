@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from pathlib import Path
 
@@ -7,6 +7,9 @@ import pandas as pd
 from app.core.db import db_connection
 from app.core.settings import settings
 from app.services.utils.dbf_reader import normalize_path
+
+# Maximo de filas por archivo: si hay mas, se parte en varios para que la subida no sea pesada.
+MAX_FILAS_POR_ARCHIVO = 1000
 
 
 def _table_columns(table_name: str) -> set[str]:
@@ -31,7 +34,8 @@ def exporta_cortes_lonas_excel(
     flores: list[str] | None = None,
     nombre_archivo: str = "ExportaCortes",
     cosecha_vacia: bool = False,
-) -> str:
+    max_filas: int = MAX_FILAS_POR_ARCHIVO,
+) -> list[str]:
     try:
         ini = pd.to_datetime(fecha_inicio, errors="raise").normalize()
         fin = pd.to_datetime(fecha_fin, errors="raise").normalize()
@@ -110,28 +114,44 @@ def exporta_cortes_lonas_excel(
     output_dir = Path(normalize_path(settings.EXCEL_OUTPUT_DIR))
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    filename = f"processed_cortes_{nombre_archivo}_{ini.strftime('%Y%m%d')}_{fin.strftime('%Y%m%d')}.xlsx"
-    output_path = output_dir / filename
+    base = f"processed_cortes_{nombre_archivo}_{ini.strftime('%Y%m%d')}_{fin.strftime('%Y%m%d')}"
+    return [str(p) for p in _escribir_en_partes(df, output_dir, base, max_filas)]
 
-    df.to_excel(output_path, index=False, sheet_name="cortes")
-    return str(output_path)
+
+def _escribir_en_partes(df: pd.DataFrame, output_dir: Path, base: str, max_filas: int) -> list[Path]:
+    """Escribe df en un solo xlsx o, si supera max_filas, en varios `<base>_parteNN.xlsx`."""
+    # Quitar salidas previas del mismo rango para no dejar partes viejas mezcladas con las nuevas.
+    for viejo in [output_dir / f"{base}.xlsx", *output_dir.glob(f"{base}_parte*.xlsx")]:
+        viejo.unlink(missing_ok=True)
+
+    if len(df) <= max_filas:
+        path = output_dir / f"{base}.xlsx"
+        df.to_excel(path, index=False, sheet_name="cortes")
+        return [path]
+
+    paths = []
+    for n, inicio in enumerate(range(0, len(df), max_filas), start=1):
+        path = output_dir / f"{base}_parte{n:02d}.xlsx"
+        df.iloc[inicio : inicio + max_filas].to_excel(path, index=False, sheet_name="cortes")
+        paths.append(path)
+    return paths
 
 
 def generate_cortes_lonas(params: dict | None = None) -> str:
     params = params or {}
-    output_path = exporta_cortes_lonas_excel(
+    output_paths = exporta_cortes_lonas_excel(
         fecha_inicio=params.get("fecha_inicio"),
         fecha_fin=params.get("fecha_fin"),
     )
-    return f"xlsx:{output_path}"
+    return " | ".join(f"xlsx:{path}" for path in output_paths)
 
 def generate_cortes_lonas_rosas(params: dict | None = None) -> str:
     params = params or {}
-    output_path = exporta_cortes_lonas_excel(
+    output_paths = exporta_cortes_lonas_excel(
         fecha_inicio=params.get("fecha_inicio"),
         fecha_fin=params.get("fecha_fin"),
         flores=settings.CORTES_LONAS_ROSAS_FLOR_FILTER,
         nombre_archivo="ExportaCortesRosas",
         cosecha_vacia=True,
     )
-    return f"xlsx:{output_path}"
+    return " | ".join(f"xlsx:{path}" for path in output_paths)
