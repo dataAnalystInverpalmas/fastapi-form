@@ -8,6 +8,7 @@ import pandas as pd
 
 from app.core.settings import settings
 from app.services.etl_jobs.quipus_vs_proy_generator import (
+    _attach_plano_pico,
     _build_quipus_export,
     _load_plano_data,
     _load_quipus_data,
@@ -45,6 +46,60 @@ class QuipusVsProySchemaTests(unittest.TestCase):
         self.assertIn("farranque", df_plano_group_s.columns)
         self.assertFalse(df_nplantas.empty)
         self.assertEqual(df_nplantas.iloc[0]["cosecha"], "2025")
+
+    def test_attach_plano_pico_no_duplica_cuando_arrancadas_y_sembradas_tienen_otro_pico(self) -> None:
+        # Caso real: Mandalay bloque 40, misma semana de siembra, camas
+        # arrancadas con pico JL2627 y sembradas con JL2628.
+        keys = {"finca": "001", "bloque": 40, "variedad": "MANDALAY", "semana": 2551}
+        df_plano_final = pd.DataFrame(
+            [
+                {**keys, "estado": "arrancada", "pico": "JL2627"},
+                {**keys, "estado": "sembrada", "pico": "JL2628"},
+            ]
+        )
+        df_quipus_mix = pd.DataFrame(
+            [{**keys, "estado": "Sembrada", "semana_de_produccion": 2649, "cantidad": 952.81}]
+        )
+
+        out = _attach_plano_pico(df_quipus_mix, df_plano_final)
+
+        self.assertEqual(out["pico"].tolist(), ["JL2628"])
+        self.assertAlmostEqual(out["cantidad"].sum(), 952.81)
+
+    def test_attach_plano_pico_usa_cualquier_estado_si_no_hay_pico_del_mismo_estado(self) -> None:
+        keys = {"finca": "001", "bloque": 21, "variedad": "BIZET", "semana": 2607}
+        df_plano_final = pd.DataFrame([{**keys, "estado": "arrancada", "pico": "AG2633"}])
+        df_quipus_mix = pd.DataFrame(
+            [{**keys, "estado": "Sembrada", "semana_de_produccion": 2649, "cantidad": 10.0}]
+        )
+
+        out = _attach_plano_pico(df_quipus_mix, df_plano_final)
+
+        self.assertEqual(out["pico"].tolist(), ["AG2633"])
+
+    def test_load_plano_data_conserva_estado_en_plano_final(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            csv_path = os.path.join(tmpdir, "tika-plano-siembra-prueba.csv")
+            base = {
+                "Finca": "001", "Bloque": "40", "Variedad": "MANDALAY", "Flor": "CLA", "Semana": 2551,
+                "S. arranque programada": 2615, "S. arranque real": 2616, "Esquejes sembrados": 944,
+            }
+            pd.DataFrame(
+                [
+                    {**base, "Estado": "Arrancada", "Fiesta (pico)": "JL2627"},
+                    {**base, "Estado": "Sembrada", "Fiesta (pico)": "JL2628"},
+                ]
+            ).to_csv(csv_path, index=False)
+
+            original_path = settings.QUIPUS_PLANO_PATH
+            settings.QUIPUS_PLANO_PATH = csv_path
+            try:
+                _, _, df_plano_final, _ = _load_plano_data(2500)
+            finally:
+                settings.QUIPUS_PLANO_PATH = original_path
+
+        pares = sorted(zip(df_plano_final["estado"], df_plano_final["pico"]))
+        self.assertEqual(pares, [("arrancada", "JL2627"), ("sembrada", "JL2628")])
 
     def test_load_quipus_data_accepts_proyeccion_khipus_column(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

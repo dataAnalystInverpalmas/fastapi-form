@@ -271,11 +271,16 @@ def _load_plano_data(semana_actual: int) -> tuple[pd.DataFrame, pd.DataFrame, pd
         text_cols=["finca", "variedad"],
     )
 
+    # estado se conserva para que _attach_plano_pico cruce Sembrada con
+    # Sembrada: un mismo bloque/variedad/semana puede tener camas arrancadas
+    # con un pico y sembradas con otro, y sin estado la proyeccion de Tika
+    # se duplicaria en ambos picos.
     df_plano_final = (
-        df_plano[["finca", "bloque", "variedad", "semana", pico_col]]
+        df_plano[["finca", "bloque", "variedad", "semana", "estado", pico_col]]
+        .assign(estado=lambda d: d["estado"].fillna("").astype(str).str.strip().str.lower())
         .dropna()
         .rename(columns={pico_col: "pico"})
-        .groupby(["finca", "bloque", "variedad", "semana", "pico"], dropna=False)
+        .groupby(["finca", "bloque", "variedad", "semana", "estado", "pico"], dropna=False)
         .size()
         .reset_index(name="count")
         .drop(columns=["count"])
@@ -387,6 +392,44 @@ def _load_quipus_data(semana_actual: int) -> pd.DataFrame:
     return df_quipus
 
 
+PLANO_PICO_KEYS = ["finca", "bloque", "variedad", "semana"]
+
+
+def _attach_plano_pico(df_quipus_mix: pd.DataFrame, df_plano_final: pd.DataFrame) -> pd.DataFrame:
+    """Le pone a cada fila de Quipus el pico (cosecha) del plano.
+
+    El pico se busca primero entre las camas del plano con el mismo estado
+    (Sembrada/Arrancada) que la fila de Quipus. Si un bloque/variedad/semana
+    tiene camas arrancadas con pico JL2627 y sembradas con JL2628, la
+    proyeccion Sembrada de Tika solo debe ir a JL2628; cruzar sin estado la
+    copiaba en los dos picos y la cantidad salia duplicada en datos.xlsx.
+    Si para ese estado no hay pico en el plano, se usa cualquier pico de la
+    llave (comportamiento anterior).
+    """
+    if "estado" not in df_plano_final.columns or "estado" not in df_quipus_mix.columns:
+        return pd.merge(df_quipus_mix, df_plano_final, on=PLANO_PICO_KEYS, how="left")
+
+    plano = df_plano_final.assign(
+        _estado=df_plano_final["estado"].fillna("").astype(str).str.strip().str.lower()
+    )
+    quipus = df_quipus_mix.assign(
+        _estado=df_quipus_mix["estado"].fillna("").astype(str).str.strip().str.lower()
+    )
+
+    picos_por_estado = plano[PLANO_PICO_KEYS + ["_estado", "pico"]].drop_duplicates()
+    merged = quipus.merge(picos_por_estado, on=PLANO_PICO_KEYS + ["_estado"], how="left")
+
+    sin_pico = merged["pico"].isna()
+    if sin_pico.any():
+        picos_cualquier_estado = plano[PLANO_PICO_KEYS + ["pico"]].drop_duplicates()
+        resto = merged[sin_pico].drop(columns=["pico"]).merge(
+            picos_cualquier_estado, on=PLANO_PICO_KEYS, how="left"
+        )
+        merged = pd.concat([merged[~sin_pico], resto], ignore_index=True)
+
+    return merged.drop(columns=["_estado"])
+
+
 def _build_quipus_projection(
     df_quipus: pd.DataFrame,
     df_plano_group_s: pd.DataFrame,
@@ -493,12 +536,7 @@ def _build_quipus_projection(
         int_cols=["semana", "bloque"],
         text_cols=["finca", "variedad", "pico"],
     )
-    df_quipus_plano0 = pd.merge(
-        df_quipus_mix,
-        df_plano_final_local,
-        on=["finca", "bloque", "variedad", "semana"],
-        how="left",
-    )
+    df_quipus_plano0 = _attach_plano_pico(df_quipus_mix, df_plano_final_local)
 
     df_quipus_plano = (
         df_quipus_plano0.groupby(
