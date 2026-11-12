@@ -77,6 +77,31 @@ class QuipusVsProySchemaTests(unittest.TestCase):
 
         self.assertEqual(out["pico"].tolist(), ["AG2633"])
 
+    def test_attach_plano_pico_usa_pico_de_tika_y_no_duplica(self) -> None:
+        # Caso real: PALERMO bloque 2 PIGEON siembra 2629, el plano tiene 6
+        # picos viejos en la misma llave; Tika dice OC2544 y la cantidad
+        # (15238) no debe repetirse en cada pico del plano.
+        keys = {"finca": "002", "bloque": 2, "variedad": "PIGEON", "semana": 2629}
+        df_plano_final = pd.DataFrame(
+            [{**keys, "estado": "sembrada", "pico": p} for p in ["DI2550", "NO2545", "OC2543", "OC2544"]]
+        )
+        df_quipus_mix = pd.DataFrame(
+            [
+                {**keys, "estado": "Sembrada", "semana_de_produccion": 2701, "cantidad": 15238.08, "pico_tika": "OC2544"},
+                {**keys, "bloque": 3, "estado": "Sembrada", "semana_de_produccion": 2701, "cantidad": 5.0, "pico_tika": pd.NA},
+            ]
+        )
+        df_plano_final = pd.concat(
+            [df_plano_final, pd.DataFrame([{**keys, "bloque": 3, "estado": "sembrada", "pico": "SE2637"}])],
+            ignore_index=True,
+        )
+
+        out = _attach_plano_pico(df_quipus_mix, df_plano_final)
+
+        self.assertEqual(sorted(out["pico"].tolist()), ["OC2544", "SE2637"])
+        self.assertAlmostEqual(out["cantidad"].sum(), 15243.08)
+        self.assertNotIn("pico_tika", out.columns)
+
     def test_load_plano_data_conserva_estado_en_plano_final(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             csv_path = os.path.join(tmpdir, "tika-plano-siembra-prueba.csv")

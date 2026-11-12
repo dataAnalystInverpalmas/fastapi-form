@@ -378,7 +378,7 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
         ETLJobDefinition(
             job_id="exporta_cortes_lonas",
             name="Exportar Cortes de Lonas",
-            description="Genera un Excel con cortes de ld_lonas agrupados por variedad/finca/bloque y semana en un rango de fechas.",
+            description="Genera un Excel con cortes de ld_lonas agrupados por variedad/finca/bloque y semana en un rango de fechas; si pasa de 1000 filas se parte en varios archivos (_parteNN).",
             allows_parallel=True,
             timeout_seconds=900,
             runner=generate_cortes_lonas,
@@ -391,7 +391,7 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
         ETLJobDefinition(
             job_id="exporta_cortes_lonas_rosas",
             name="Exportar Cortes de Lonas Rosas",
-            description="Genera un Excel con cortes de rosas (ld_lonas) agrupados por variedad/finca/bloque y semana en un rango de fechas; la columna cosecha va vacia.",
+            description="Genera un Excel con cortes de rosas (ld_lonas) agrupados por variedad/finca/bloque y semana en un rango de fechas; la columna cosecha va vacia. Si pasa de 1000 filas se parte en varios archivos (_parteNN).",
             allows_parallel=True,
             timeout_seconds=900,
             runner=generate_cortes_lonas_rosas,

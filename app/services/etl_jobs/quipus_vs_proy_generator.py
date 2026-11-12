@@ -50,6 +50,14 @@ def _normalize_text_key(series: pd.Series) -> pd.Series:
     return series.astype(str).str.strip().str.replace(" ", "_", regex=False)
 
 
+def _normalize_optional_pico(series: pd.Series) -> pd.Series:
+    """Como _normalize_text_key, pero deja NA donde no hay pico (no lo vuelve "nan")."""
+    text = series.where(series.notna(), None).map(
+        lambda v: None if v is None else str(v).strip().replace(" ", "_")
+    )
+    return text.where(text.notna() & (text != ""), pd.NA)
+
+
 def _normalize_nullable_int_key(series: pd.Series) -> pd.Series:
     return pd.to_numeric(series, errors="coerce").astype("Int64")
 
@@ -366,21 +374,26 @@ def _load_quipus_data(semana_actual: int) -> pd.DataFrame:
     df_quipus["semana_de_produccion"] = _to_int(df_quipus["semana_de_produccion"])
     df_quipus["bloque"] = _normalize_nullable_int_key(df_quipus["bloque"])
 
+    group_cols = [
+        "finca",
+        "variedad",
+        "color",
+        "flor",
+        "estado",
+        "semana",
+        "semana_de_produccion",
+        "bloque",
+        "edad",
+    ]
+    # Tika trae el pico de cada fila ("Fiesta (pico)"). Se conserva para no
+    # depender solo del cruce con el plano, que puede tener varios picos para
+    # el mismo finca/bloque/variedad/semana y duplicaria la cantidad.
+    if "fiesta_pico" in df_quipus.columns:
+        df_quipus["pico_tika"] = _normalize_optional_pico(df_quipus["fiesta_pico"])
+        group_cols.append("pico_tika")
+
     df_quipus = (
-        df_quipus.groupby(
-            [
-                "finca",
-                "variedad",
-                "color",
-                "flor",
-                "estado",
-                "semana",
-                "semana_de_produccion",
-                "bloque",
-                "edad",
-            ],
-            dropna=False,
-        )["cantidad"]
+        df_quipus.groupby(group_cols, dropna=False)["cantidad"]
         .sum()
         .reset_index()
     )
@@ -405,7 +418,21 @@ def _attach_plano_pico(df_quipus_mix: pd.DataFrame, df_plano_final: pd.DataFrame
     copiaba en los dos picos y la cantidad salia duplicada en datos.xlsx.
     Si para ese estado no hay pico en el plano, se usa cualquier pico de la
     llave (comportamiento anterior).
+
+    Si la fila de Quipus ya trae su propio pico (columna pico_tika, de
+    "Fiesta (pico)"), se usa ese y no se cruza con el plano: el plano puede
+    tener camas con picos viejos en la misma llave (p. ej. PALERMO bloque 2
+    PIGEON siembra 2629 con 6 picos) y el cruce copiaba la cantidad en cada uno.
     """
+    if "pico_tika" in df_quipus_mix.columns:
+        con_pico = df_quipus_mix["pico_tika"].notna()
+        propios = df_quipus_mix[con_pico].rename(columns={"pico_tika": "pico"})
+        resto = df_quipus_mix[~con_pico].drop(columns=["pico_tika"])
+        if resto.empty:
+            return propios.reset_index(drop=True)
+        cruzados = _attach_plano_pico(resto, df_plano_final)
+        return pd.concat([propios, cruzados], ignore_index=True)
+
     if "estado" not in df_plano_final.columns or "estado" not in df_quipus_mix.columns:
         return pd.merge(df_quipus_mix, df_plano_final, on=PLANO_PICO_KEYS, how="left")
 
