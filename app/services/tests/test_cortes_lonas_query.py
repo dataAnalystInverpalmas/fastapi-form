@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from app.services.queries.cortes_lonas_query import _escribir_en_partes
+from app.services.queries.cortes_lonas_query import _escribir_en_partes, _rellenar_semana_siembra
 
 
 class EscribirEnPartesTests(unittest.TestCase):
@@ -40,6 +40,25 @@ class EscribirEnPartesTests(unittest.TestCase):
         _escribir_en_partes(self._df(10), self.dir, "base", 1000)
         self.assertEqual(
             sorted(p.name for p in self.dir.iterdir()), ["base.xlsx", "otro_parte01.xlsx"]
+        )
+
+
+class RellenarSemanaSiembraTests(unittest.TestCase):
+    def test_sin_siembra_queda_2401_y_se_reagrupa(self):
+        df = pd.DataFrame(
+            {
+                "variedad": ["A", "A", "A", "B"],
+                "finca": ["001", "001", "001", "002"],
+                "bloque": ["1", "1", "1", "2"],
+                "semana": [2545, 2545, 2545, 2545],
+                "semana_siembra": [None, 2401, 2310, 2320],
+                "cantidad": [10, 5, 7, 3],
+            }
+        )
+        out = _rellenar_semana_siembra(df, 2401)
+        self.assertEqual(
+            out[["variedad", "semana_siembra", "cantidad"]].values.tolist(),
+            [["A", 2401, 15], ["A", 2310, 7], ["B", 2320, 3]],
         )
 
 

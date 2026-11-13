@@ -10,6 +10,8 @@ from app.services.utils.dbf_reader import normalize_path
 
 # Maximo de filas por archivo: si hay mas, se parte en varios para que la subida no sea pesada.
 MAX_FILAS_POR_ARCHIVO = 1000
+# Semana de siembra para rosas cuando el dato no viene en ld_lonas.
+SEMANA_SIEMBRA_ROSAS_DEFAULT = 2401
 
 
 def _table_columns(table_name: str) -> set[str]:
@@ -35,6 +37,7 @@ def exporta_cortes_lonas_excel(
     nombre_archivo: str = "ExportaCortes",
     cosecha_vacia: bool = False,
     max_filas: int = MAX_FILAS_POR_ARCHIVO,
+    semana_siembra_default: int | None = None,
 ) -> list[str]:
     try:
         ini = pd.to_datetime(fecha_inicio, errors="raise").normalize()
@@ -99,6 +102,8 @@ def exporta_cortes_lonas_excel(
 
     df = df[df["cantidad"] > 0].copy()
     df["variedad"] = df["variedad"].str.replace(r"_$", "", regex=True)
+    if semana_siembra_default is not None:
+        df = _rellenar_semana_siembra(df, semana_siembra_default)
     if cosecha_vacia:
         # Rosas: la columna cosecha se exporta vacia (no se agrupa por ella).
         df.insert(df.columns.get_loc("bloque") + 1, "cosecha", "")
@@ -116,6 +121,18 @@ def exporta_cortes_lonas_excel(
 
     base = f"processed_cortes_{nombre_archivo}_{ini.strftime('%Y%m%d')}_{fin.strftime('%Y%m%d')}"
     return [str(p) for p in _escribir_en_partes(df, output_dir, base, max_filas)]
+
+
+def _rellenar_semana_siembra(df: pd.DataFrame, valor: int) -> pd.DataFrame:
+    """Pone `valor` donde no hay semana de siembra y reagrupa para no dejar filas duplicadas.
+
+    Una misma variedad/finca/bloque/semana puede traer filas con y sin siembra; al
+    rellenar, las que caen en la misma semana de siembra se suman en una sola fila.
+    """
+    df = df.copy()
+    df["semana_siembra"] = pd.to_numeric(df["semana_siembra"], errors="coerce").fillna(valor).astype(int)
+    claves = ["variedad", "finca", "bloque", "semana", "semana_siembra"]
+    return df.groupby(claves, as_index=False, sort=False, dropna=False)["cantidad"].sum()
 
 
 def _escribir_en_partes(df: pd.DataFrame, output_dir: Path, base: str, max_filas: int) -> list[Path]:
@@ -153,5 +170,7 @@ def generate_cortes_lonas_rosas(params: dict | None = None) -> str:
         flores=settings.CORTES_LONAS_ROSAS_FLOR_FILTER,
         nombre_archivo="ExportaCortesRosas",
         cosecha_vacia=True,
+        # Rosas: ld_lonas no trae fecha de siembra, se exporta la semana 2401 por defecto.
+        semana_siembra_default=SEMANA_SIEMBRA_ROSAS_DEFAULT,
     )
     return " | ".join(f"xlsx:{path}" for path in output_paths)
