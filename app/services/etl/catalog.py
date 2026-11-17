@@ -189,7 +189,7 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
         ETLJobDefinition(
             job_id="compare_tika_produccion_despachos",
             name="Comparar Tika Produccion Despachos",
-            description="Genera comparar producción.csv y Excel consolidando Tika, quipus, demanda, despachos y proyecciones. Tambien lo guarda en la tabla tika_compara_produccion.",
+            description="Genera comparar producción.csv y Excel consolidando Tika, quipus, demanda (tipo 'demanda', COMPARE_TIKA_DEMANDA_PATH) y un segundo grupo de demanda (tipo 'demandai', COMPARE_TIKA_DEMANDAI_PATH), despachos y proyecciones. Tambien lo guarda en la tabla tika_compara_produccion.",
             allows_parallel=True,
             timeout_seconds=2400,
             runner=generate_compare_tika_produccion_report,

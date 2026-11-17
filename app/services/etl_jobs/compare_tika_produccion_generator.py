@@ -325,8 +325,18 @@ def _process_tika_projection(modelo_tika: int, tipo: str, df_dates: pd.DataFrame
     return df[["fecha", "flor", "variedad", "color", "tallos", "tipo"]].copy()
 
 
-def _load_demanda(df_dates: pd.DataFrame, df_vari: pd.DataFrame) -> pd.DataFrame:
-    path = Path(normalize_path(settings.COMPARE_TIKA_DEMANDA_PATH))
+def _load_demanda(
+    df_dates: pd.DataFrame,
+    df_vari: pd.DataFrame,
+    path_setting: str | None = None,
+    tipo: str = "demanda",
+) -> pd.DataFrame:
+    """Grupo de demanda exportado de Tika como tallos por semana.
+
+    Por defecto lee COMPARE_TIKA_DEMANDA_PATH con tipo 'demanda'; con
+    path_setting/tipo se carga otro grupo (p.ej. 'demandai').
+    """
+    path = Path(normalize_path(path_setting or settings.COMPARE_TIKA_DEMANDA_PATH))
     if not path.exists():
         raise FileNotFoundError(f"No existe archivo de demanda: {path}")
     df = pd.read_csv(path, thousands=".")
@@ -339,7 +349,7 @@ def _load_demanda(df_dates: pd.DataFrame, df_vari: pd.DataFrame) -> pd.DataFrame
     df["aass"] = pd.to_numeric(df["aass"], errors="coerce").astype("Int64")
     df["variedad"] = _normalize_text(df["variedad"])
     df = pd.merge(df, df_vari, on="variedad", how="left")
-    df["tipo"] = "demanda"
+    df["tipo"] = tipo
     df = pd.merge(df, df_dates[["fecha", "aass"]], on="aass", how="left").drop(columns=["aass"])
     df = df[df["fecha"].notna()].copy()
     return df[["fecha", "flor", "variedad", "color", "tallos", "tipo"]].copy()
@@ -353,6 +363,7 @@ def generate_compare_tika_produccion_report(params: dict[str, Any] | None = None
     df_despachos = _load_despachos()
     df_quipus = _load_quipus_compare(df_dates, df_vari)
     df_demanda = _load_demanda(df_dates, df_vari)
+    df_demandai = _load_demanda(df_dates, df_vari, settings.COMPARE_TIKA_DEMANDAI_PATH, "demandai")
 
     df_tika = [
         _process_tika_projection(modelo, f"Tika_{letra}", df_dates, df_vari)
@@ -378,6 +389,7 @@ def generate_compare_tika_produccion_report(params: dict[str, Any] | None = None
     frames = [
         df_despachos,
         df_demanda,
+        df_demandai,
         *df_tika,
         *df_rota,
         *df_bajas,

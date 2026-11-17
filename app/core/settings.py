@@ -314,6 +314,8 @@ class Settings(BaseSettings):
     COMPARE_TIKA_D_CUTOFF_DATE: str = "2026-01-05"
     COMPARE_TIKA_DESPACHOS_PATH: str = r"\\172.10.18.2\Usuarios\Outputs\ventas ultimo año.xlsx"
     COMPARE_TIKA_DEMANDA_PATH: str = r"\\172.10.18.2\Usuarios\Hilder\Data\demanda_27-28v3.csv"
+    # Segundo grupo de demanda; sale en 'Comparar Tika Produccion Despachos' como tipo "demandai".
+    COMPARE_TIKA_DEMANDAI_PATH: str = r"\\172.10.18.2\Usuarios\Hilder\Data\demanda_27-28v4.csv"
     COMPARE_TIKA_OUTPUT_PATH: str = r"\\172.10.18.2\Usuarios\Hilder\Data\comparar producción.csv"
     COMPARE_TIKA_OUTPUT_EXCEL_PATH: str = r"\\172.10.18.2\Usuarios\Outputs\comparar producción.xlsx"
 
