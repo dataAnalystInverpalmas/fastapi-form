@@ -112,7 +112,7 @@ def exporta_cortes_lonas_excel(
 
     if semana_siembra_fija is not None:
         # Va despues del mapeo de finca para que codigos como "001" y 1 queden en la misma fila.
-        df = _agrupar_sin_bloque(df, semana_siembra_fija)
+        df = _agrupar_semana_siembra_fija(df, semana_siembra_fija)
     if cosecha_vacia:
         # Rosas: la columna cosecha se exporta vacia (no se agrupa por ella).
         df.insert(df.columns.get_loc("bloque") + 1, "cosecha", "")
@@ -124,22 +124,20 @@ def exporta_cortes_lonas_excel(
     return [str(p) for p in _escribir_en_partes(df, output_dir, base, max_filas)]
 
 
-def _agrupar_sin_bloque(df: pd.DataFrame, semana_siembra: int) -> pd.DataFrame:
-    """Rosas: una fila por variedad/finca/semana_siembra/semana, sumando los bloques.
+def _agrupar_semana_siembra_fija(df: pd.DataFrame, semana_siembra: int) -> pd.DataFrame:
+    """Rosas: una fila por variedad/finca/bloque/semana con la semana de siembra fija.
 
-    Toda fila queda con la semana de siembra `semana_siembra` (el dato real no se usa)
-    y la columna bloque se exporta vacia, igual que cosecha.
+    Toda fila queda con `semana_siembra` (el dato real no se usa), asi que las filas
+    de un mismo bloque y semana que venian con siembras distintas se suman en una.
     """
     df = df.copy()
     df["semana_siembra"] = semana_siembra
-    claves = ["variedad", "finca", "semana", "semana_siembra"]
-    df = (
+    claves = ["variedad", "finca", "bloque", "semana", "semana_siembra"]
+    return (
         df.groupby(claves, as_index=False, dropna=False)["cantidad"].sum()
-        .sort_values(["variedad", "finca", "semana"], kind="stable")
+        .sort_values(["variedad", "finca", "bloque", "semana"], kind="stable")
         .reset_index(drop=True)
     )
-    df.insert(df.columns.get_loc("finca") + 1, "bloque", "")
-    return df
 
 
 def _escribir_en_partes(df: pd.DataFrame, output_dir: Path, base: str, max_filas: int) -> list[Path]:
@@ -177,7 +175,7 @@ def generate_cortes_lonas_rosas(params: dict | None = None) -> str:
         flores=settings.CORTES_LONAS_ROSAS_FLOR_FILTER,
         nombre_archivo="ExportaCortesRosas",
         cosecha_vacia=True,
-        # Rosas: siempre semana de siembra 2401, agrupando variedad/finca/semana (sin bloque).
+        # Rosas: siempre semana de siembra 2401, agrupando variedad/finca/bloque/semana.
         semana_siembra_fija=SEMANA_SIEMBRA_ROSAS_DEFAULT,
     )
     return " | ".join(f"xlsx:{path}" for path in output_paths)

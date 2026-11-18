@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from app.services.queries.cortes_lonas_query import _agrupar_sin_bloque, _escribir_en_partes
+from app.services.queries.cortes_lonas_query import _agrupar_semana_siembra_fija, _escribir_en_partes
 
 
 class EscribirEnPartesTests(unittest.TestCase):
@@ -43,8 +43,8 @@ class EscribirEnPartesTests(unittest.TestCase):
         )
 
 
-class AgruparSinBloqueTests(unittest.TestCase):
-    def test_suma_bloques_y_siembras_en_una_fila_con_2401(self):
+class AgruparSemanaSiembraFijaTests(unittest.TestCase):
+    def test_suma_siembras_por_bloque_con_2401(self):
         df = pd.DataFrame(
             {
                 "variedad": ["A", "A", "A", "A", "B"],
@@ -55,16 +55,17 @@ class AgruparSinBloqueTests(unittest.TestCase):
                 "cantidad": [10, 5, 7, 4, 3],
             }
         )
-        out = _agrupar_sin_bloque(df, 2401)
+        out = _agrupar_semana_siembra_fija(df, 2401)
         self.assertEqual(
             out.columns.tolist(), ["variedad", "finca", "bloque", "semana", "semana_siembra", "cantidad"]
         )
         self.assertEqual(
             out.values.tolist(),
             [
-                ["A", "F1", "", 2640, 2401, 22],
-                ["A", "F1", "", 2641, 2401, 4],
-                ["B", "F2", "", 2640, 2401, 3],
+                ["A", "F1", "12", 2640, 2401, 17],
+                ["A", "F1", "12", 2641, 2401, 4],
+                ["A", "F1", "18", 2640, 2401, 5],
+                ["B", "F2", "2", 2640, 2401, 3],
             ],
         )
 
