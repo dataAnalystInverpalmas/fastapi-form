@@ -63,23 +63,41 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def _normalize_text(series: pd.Series) -> pd.Series:
-    return series.astype(str).str.strip().str.replace(" ", "_", regex=False)
-
-
 def _normalize_date(series: pd.Series) -> pd.Series:
     return pd.to_datetime(series, errors="coerce").dt.normalize()
 
 
-def _current_week_window() -> tuple[pd.Timestamp, pd.Timestamp, int]:
-    """Replica la lógica temporal del notebook para dirigidas."""
+def _current_week_window() -> tuple[pd.Timestamp, pd.Timestamp]:
+    """Ventana de la semana siguiente: (domingo previo, domingo final].
+
+    El límite inicial es exclusivo, así que cubre lunes a domingo de la semana objetivo.
+    """
     fecha_actual = datetime.now()
     fecha_inicio = fecha_actual + timedelta(weeks=1)
     dias_desde_lunes = (fecha_inicio.weekday() + 1) % 7
     fecha_inicio_lunes = fecha_inicio - timedelta(days=dias_desde_lunes)
     fecha_final = fecha_inicio_lunes + timedelta(days=7)
-    numero_semana = int(fecha_final.strftime("%Y%U"))
-    return pd.Timestamp(fecha_inicio_lunes).normalize(), pd.Timestamp(fecha_final).normalize(), numero_semana
+    return pd.Timestamp(fecha_inicio_lunes).normalize(), pd.Timestamp(fecha_final).normalize()
+
+
+def _semana_a_aaaass(values: pd.Series) -> pd.Series:
+    """Lleva semanas a AAAASS numérico; acepta AASS (2653 → 202653) y AAAASS (202653).
+
+    Comparar en AAAASS evita que semanas viejas en AASS (p. ej. 9952 de 1999)
+    queden por encima de las actuales.
+    """
+    texto = values.astype(str).str.strip().str.replace(r"\.0$", "", regex=True)
+    num = pd.to_numeric(texto, errors="coerce")
+    es_aass = texto.str.fullmatch(r"\d{4}")
+    return num.where(~es_aass, 200000 + num)
+
+
+def _semana_objetivo(df_dates: pd.DataFrame, fecha_final: pd.Timestamp) -> int:
+    """Semana (AAAASS) de la tabla dates para el domingo que cierra la ventana."""
+    fila = df_dates.loc[df_dates["fecha"] == fecha_final, "aass"]
+    if fila.empty:
+        raise RuntimeError(f"La tabla dates no tiene la fecha {fecha_final:%Y-%m-%d}.")
+    return int(_semana_a_aaaass(fila).iloc[0])
 
 
 def _dias_habiles_semana(fecha_inicio: pd.Timestamp) -> list[str]:
@@ -217,64 +235,53 @@ def _exclude_arreglos(df: pd.DataFrame, exclusiones: set[str]) -> pd.DataFrame:
     return df[~mask].copy()
 
 
-def _load_arreglos_dirigidas() -> pd.DataFrame:
-    """Load tabla_arreglos.xlsx."""
-    path = Path(normalize_path(settings.DIRIGIDAS_ARREGLOS_PATH))
-    if not path.exists():
-        raise FileNotFoundError(f"No existe tabla de arreglos: {path}")
-
-    df = pd.read_excel(path, sheet_name="Hoja1")
-    df = _normalize_columns(df)
-
-    required = {"nvariedad", "cosecha", "finca", "bloque", "flor_a", "fecha", "tallos", "tipo"}
-    validate_columns(df, required, "tabla_arreglos.xlsx")
-
-    df["finca"] = df["finca"].astype(str).str.strip()
-    df["finca"] = normalize_finca_series(df["finca"])
-    df["nvariedad"] = df["nvariedad"].astype(str).str.strip()
-
-    # Filter CLA y CM0
-    df = df[df["flor_a"].isin(settings.DIRIGIDAS_FLOR_FILTER)].copy()
-
-    # Filter por fecha mínima
-    df["fecha"] = _normalize_date(df["fecha"])
-    df = df[df["fecha"] >= settings.DIRIGIDAS_DATE_MIN].copy()
-
-    return df
-
-
 # ---------------------------------------------------------------------------
 # Processing Functions
 # ---------------------------------------------------------------------------
 
-def _merge_proy_plane(
-    df_proy: pd.DataFrame,
-    df_plane: pd.DataFrame,
-    df_seasons: pd.DataFrame,
+def _max_lonas_por_tallos(tallos: pd.Series, tallos_x2: int, tallos_x3: int) -> pd.Series:
+    """Tope de lonas por fila según tallos: <x2 → 1, entre x2 y x3 → 2, >x3 → 3."""
+    tallos = pd.to_numeric(tallos, errors="coerce").fillna(0)
+    return pd.Series(
+        np.select([tallos < tallos_x2, tallos > tallos_x3], [1, 3], default=2),
+        index=tallos.index,
+    )
+
+
+def _assign_lonas_bloque(
+    df: pd.DataFrame,
+    lonas_semana: int,
+    tallos_x2: int,
+    tallos_x3: int,
 ) -> pd.DataFrame:
-    """Merge proyecciones with plano data."""
-    df_proy_plane = pd.merge(
-        df_proy,
-        df_plane[["finca", "bloque", "nvari", "cosecha", "matas"]],
-        on=["finca", "bloque", "nvari", "cosecha"],
-        how="left",
-        suffixes=("", "_plane"),
-    )
+    """Asigna lonas (1-3) por fila sin pasar el cupo semanal de cada finca/flor.
 
-    # Usar matas del plano si está disponible
-    if "matas_plane" in df_proy_plane.columns:
-        df_proy_plane["matas"] = df_proy_plane["matas_plane"].combine_first(df_proy_plane.get("matas"))
-        df_proy_plane = df_proy_plane.drop(columns=["matas_plane"])
+    Todas las filas parten con 1 lona. El cupo sobrante se reparte por rondas en
+    orden de mayor a menor tallos: primero la 2.ª lona (filas con tallos >= x2) y
+    luego la 3.ª (filas con tallos > x3). Así nunca se excede el cupo y, si no
+    alcanza, se quedan sin lona extra las filas con menos tallos.
+    """
+    df = df.copy()
+    df["muestra"] = 1
+    if df.empty:
+        return df
 
-    df_proy_plane = pd.merge(
-        df_proy_plane,
-        df_seasons,
-        on="cosecha",
-        how="left",
-        suffixes=("", "_season"),
-    )
-
-    return df_proy_plane
+    max_lonas = _max_lonas_por_tallos(df["tallos"], tallos_x2, tallos_x3)
+    for _, grp in df.groupby(["finca", "flor"], sort=False):
+        cupo_extra = int(lonas_semana) - len(grp)
+        if cupo_extra <= 0:
+            continue
+        orden = grp.sort_values(
+            ["tallos", "matas", "bloque", "nvari"], ascending=[False, False, True, True]
+        ).index
+        for nivel in (2, 3):
+            for idx in orden:
+                if cupo_extra <= 0:
+                    break
+                if max_lonas.at[idx] >= nivel:
+                    df.at[idx, "muestra"] += 1
+                    cupo_extra -= 1
+    return df
 
 
 def _select_top_samples(
@@ -334,79 +341,6 @@ def _remove_excedentes(
         df = df.drop(indices_a_eliminar)
 
     return df.reset_index(drop=True)
-
-
-def _distribute_by_days(
-    df: pd.DataFrame,
-    lonas_semana: int = 66,
-) -> pd.DataFrame:
-    """Distribute samples across days of the week."""
-    expected_cols = list(df.columns)
-    if "dia" not in expected_cols:
-        expected_cols.append("dia")
-
-    if df.empty:
-        return pd.DataFrame(columns=expected_cols)
-
-    df_final = pd.DataFrame(columns=expected_cols)
-
-    for _, group in df.groupby(["finca", "flor"]):
-        samples = []
-
-        for dia in DIAS_SEMANA:
-            remaining_rows = group[~group.index.isin(samples)]
-
-            if dia != "sabado":
-                max_sample_size = min(12, len(remaining_rows))
-            else:
-                max_sample_size = min(6, len(remaining_rows))
-
-            if max_sample_size > 0:
-                random_variedades = remaining_rows.sample(n=max_sample_size, replace=False).copy()
-                samples.extend(random_variedades.index)
-                random_variedades["dia"] = dia
-                df_final = pd.concat([df_final, random_variedades], ignore_index=True)
-
-    return df_final if not df_final.empty else pd.DataFrame(columns=expected_cols)
-
-
-def _assign_muestra_values(
-    df: pd.DataFrame,
-    lonas_semana: int = 66,
-) -> pd.DataFrame:
-    """Assign muestra values (1-4) based on available space."""
-    expected_cols = list(df.columns)
-    if "muestra" not in expected_cols:
-        expected_cols.append("muestra")
-
-    if df.empty:
-        return pd.DataFrame(columns=expected_cols)
-
-    df_result = pd.DataFrame()
-
-    for _, group in df.groupby(["finca", "flor"]):
-        val = lonas_semana - len(group)
-        group = group.reset_index(drop=True)
-
-        if val > 0:
-            if val >= 3:
-                group.loc[:2, "muestra"] = 4
-                group.loc[3:5, "muestra"] = 3
-                group.loc[6:, "muestra"] = 2
-            elif val == 2:
-                group.loc[:1, "muestra"] = 4
-                group.loc[2:3, "muestra"] = 3
-            elif val == 1:
-                group.loc[0, "muestra"] = 4
-        else:
-            group.loc[:val - 1, "muestra"] = 2
-
-        df_result = pd.concat([df_result, group], ignore_index=True)
-
-    if df_result.empty:
-        return pd.DataFrame(columns=expected_cols)
-
-    return df_result.sort_values(["finca", "flor"]).reset_index(drop=True)
 
 
 def _expand_by_muestra(df: pd.DataFrame) -> pd.DataFrame:
@@ -524,35 +458,16 @@ def _build_dirigida_bloque_output(
     )
 
     df_top_pp = _select_top_samples(df_proy_plane4, muestras=muestras)
+    # Deja como máximo lonas_semana filas por finca/flor (se van las de menos tallos).
     df_top_pp = _remove_excedentes(df_top_pp, lonas_semana=lonas_semana)
-    df_top_pp["muestra"] = 1
-
-    # Si faltan muestras para llegar a lonas_semana, subir a 2 algunas filas de mayor tallo.
-    suma_por_grupo = df_top_pp.groupby(["finca", "flor"]).size().reset_index(name="total")
-    grupos_menor = suma_por_grupo[suma_por_grupo["total"] < lonas_semana]
-    for _, row in grupos_menor.iterrows():
-        finca, flor = row["finca"], row["flor"]
-        faltante = int(lonas_semana - row["total"])
-        if faltante <= 0:
-            continue
-
-        mask = (df_top_pp["finca"] == finca) & (df_top_pp["flor"] == flor)
-        idx = df_top_pp[mask].sort_values("tallos", ascending=False).head(faltante).index
-        df_top_pp.loc[idx, "muestra"] = 2
-
-    # Ajustes de muestra por umbral de tallos.
-    df_top_pp.loc[df_top_pp["tallos"] < tallos_x2, "muestra"] = 1
-    df_top_pp.loc[df_top_pp["tallos"] > tallos_x3, "muestra"] = 2
+    # Lonas por fila (1-3) según umbrales de tallos, siempre dentro del cupo.
+    df_top_pp = _assign_lonas_bloque(df_top_pp, lonas_semana, tallos_x2, tallos_x3)
 
     sampled_data = _expand_by_muestra(df_top_pp)
     sampled_data = sampled_data.sort_values(
         by=["finca", "flor", "bloque", "tallos", "nvari"],
         ascending=[True, True, True, False, True],
     ).reset_index(drop=True)
-
-    sampled_data["suma_acumulada"] = sampled_data.groupby(["finca", "flor"])["muestra"].cumsum().astype(int)
-    sampled_data = sampled_data[sampled_data["suma_acumulada"] <= lonas_semana].copy()
-    sampled_data.drop(columns=["suma_acumulada"], inplace=True)
 
     # Asignación de día concentrando cada bloque en uno o, cuando sea necesario, dos días.
     sampled_data["dia"] = ""
@@ -620,12 +535,20 @@ def _build_dirigida_pc_output(
             group.loc[row_idx, "muestra"] += incremento
             faltante -= incremento
 
-        i = 0
-        while faltante > 0 and not group.empty:
-            row_idx = i % len(group)
-            group.loc[row_idx, "muestra"] += 1
-            faltante -= 1
-            i += 1
+        # El cupo restante se reparte proporcional al aporte de tallos (residuo mayor).
+        if faltante > 0:
+            pesos = group["tallos"] / group["tallos"].sum()
+            cuotas = pesos * faltante
+            enteros = np.floor(cuotas).astype(int)
+            group["muestra"] += enteros
+            sobrantes = int(faltante - enteros.sum())
+            if sobrantes > 0:
+                orden = (
+                    pd.DataFrame({"residuo": cuotas - enteros, "tallos": group["tallos"]})
+                    .sort_values(["residuo", "tallos"], ascending=[False, False])
+                    .index[:sobrantes]
+                )
+                group.loc[orden, "muestra"] += 1
         chunks.append(group)
 
     df_resultado = pd.concat(chunks, ignore_index=True) if chunks else pd.DataFrame(columns=df_sorted.columns)
@@ -639,7 +562,7 @@ def _build_dirigida_pc_output(
 
 def generate_dirigidas_analyzer(params: dict[str, Any] | None = None) -> str:
     """
-    Genera análisis de dirigidas desde proyecciones, plano y tabla de arreglos.
+    Genera análisis de dirigidas desde proyecciones y plano (excluye arreglos AR recientes de ld_arre).
     Produce distribución de muestras por día de la semana y valida capacidad
     de lonas (65 muestras máximo por finca/flor).
 
@@ -665,10 +588,9 @@ def generate_dirigidas_analyzer(params: dict[str, Any] | None = None) -> str:
     # Cargar datos
     df_plane, df_seasons, df_dates = _load_db_dirigidas()
     df_proy = _load_proyecciones_dirigidas()
-    df_arr = _load_arreglos_dirigidas()
 
     # Filtro principal del notebook: flor/tipo/edad + ventana semanal.
-    fecha_inicio_lunes, fecha_final, numero_semana = _current_week_window()
+    fecha_inicio_lunes, fecha_final = _current_week_window()
 
     # Festivos lunes-sábado no se programan: el cupo semanal baja a la capacidad
     # de los días hábiles para no pasar el límite por día.
@@ -678,8 +600,8 @@ def generate_dirigidas_analyzer(params: dict[str, Any] | None = None) -> str:
         (df_proy["flor"].isin(settings.DIRIGIDAS_FLOR_FILTER))
         & (df_proy["tipo"] == "Proy_Aj")
         & (
-            ((df_proy["edad"] > settings.DIRIGIDAS_EDAD_PICO_INICIO) & (df_proy["edad"] <= settings.DIRIGIDAS_EDAD_PICO_FIN))
-            | (df_proy["edad"] <= settings.DIRIGIDAS_EDAD_MIN)
+            ((df_proy["edad"] > settings.DIRIGIDAS_EDAD_PICO_INICIO) & (df_proy["edad"] < settings.DIRIGIDAS_EDAD_PICO_FIN))
+            | (df_proy["edad"] < settings.DIRIGIDAS_EDAD_MIN)
         )
     ].copy()
 
@@ -725,7 +647,10 @@ def generate_dirigidas_analyzer(params: dict[str, Any] | None = None) -> str:
         how="inner",
     )
 
-    df_proy_plane1["ferradica_num"] = pd.to_numeric(df_proy_plane1["ferradica"], errors="coerce")
+    # Solo siembras que se erradican después de la semana objetivo. La semana sale de
+    # dates.aass (AASS) y ferradica puede venir en AASS o AAAASS: se comparan en AAAASS.
+    numero_semana = _semana_objetivo(df_dates, fecha_final)
+    df_proy_plane1["ferradica_num"] = _semana_a_aaaass(df_proy_plane1["ferradica"])
     df_proy_plane2 = df_proy_plane1[
         (df_proy_plane1["matas"] >= settings.DIRIGIDAS_PLANTAS_POR_CAMA * camas_min * settings.DIRIGIDAS_TOLERANCIA_MATAS)
         & (df_proy_plane1["ferradica_num"] > numero_semana)

@@ -260,8 +260,6 @@ class Settings(BaseSettings):
     PICOS_SEMANA_FIN: int = 2620
 
     # ETL dirigidas analyzer
-    DIRIGIDAS_ARREGLOS_PATH: str = r"//172.10.18.2/usuarios/Hilder/Data/tabla_arreglos.xlsx"
-    DIRIGIDAS_DATE_MIN: str = "2026-02-01"
     DIRIGIDAS_MUESTRAS: int = 5
     DIRIGIDAS_TALLOS_MIN: int = 1000
     DIRIGIDAS_LONAS_SEMANA: int = 65
@@ -274,9 +272,10 @@ class Settings(BaseSettings):
     DIRIGIDAS_TALLOS_X3: int = 8000
     DIRIGIDAS_PLANTAS_POR_CAMA: int = 960
     DIRIGIDAS_TOLERANCIA_MATAS: float = 0.9
-    DIRIGIDAS_EDAD_MIN: int = 30
+    # Edades que se muestrean: edad < EDAD_MIN o EDAD_PICO_INICIO < edad < EDAD_PICO_FIN.
+    DIRIGIDAS_EDAD_MIN: int = 28
     DIRIGIDAS_EDAD_PICO_INICIO: int = 40
-    DIRIGIDAS_EDAD_PICO_FIN: int = 58
+    DIRIGIDAS_EDAD_PICO_FIN: int = 56
     # Bloques con arreglo (tipo AR) en ld_arre dentro de estos días no se escogen como muestra.
     DIRIGIDAS_EXCLUIR_ARREGLOS_DIAS: int = 42
 
