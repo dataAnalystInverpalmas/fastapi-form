@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from app.services.queries.cortes_lonas_query import _escribir_en_partes, _rellenar_semana_siembra
+from app.services.queries.cortes_lonas_query import _agrupar_semana_siembra_fija, _escribir_en_partes
 
 
 class EscribirEnPartesTests(unittest.TestCase):
@@ -43,22 +43,30 @@ class EscribirEnPartesTests(unittest.TestCase):
         )
 
 
-class RellenarSemanaSiembraTests(unittest.TestCase):
-    def test_sin_siembra_queda_2401_y_se_reagrupa(self):
+class AgruparSemanaSiembraFijaTests(unittest.TestCase):
+    def test_suma_siembras_por_bloque_con_2401(self):
         df = pd.DataFrame(
             {
-                "variedad": ["A", "A", "A", "B"],
-                "finca": ["001", "001", "001", "002"],
-                "bloque": ["1", "1", "1", "2"],
-                "semana": [2545, 2545, 2545, 2545],
-                "semana_siembra": [None, 2401, 2310, 2320],
-                "cantidad": [10, 5, 7, 3],
+                "variedad": ["A", "A", "A", "A", "B"],
+                "finca": ["F1", "F1", "F1", "F1", "F2"],
+                "bloque": ["12", "18", "12", "12", "2"],
+                "semana": [2640, 2640, 2640, 2641, 2640],
+                "semana_siembra": [None, 2310, 2401, None, 2320],
+                "cantidad": [10, 5, 7, 4, 3],
             }
         )
-        out = _rellenar_semana_siembra(df, 2401)
+        out = _agrupar_semana_siembra_fija(df, 2401)
         self.assertEqual(
-            out[["variedad", "semana_siembra", "cantidad"]].values.tolist(),
-            [["A", 2401, 15], ["A", 2310, 7], ["B", 2320, 3]],
+            out.columns.tolist(), ["variedad", "finca", "bloque", "semana", "semana_siembra", "cantidad"]
+        )
+        self.assertEqual(
+            out.values.tolist(),
+            [
+                ["A", "F1", "12", 2640, 2401, 17],
+                ["A", "F1", "12", 2641, 2401, 4],
+                ["A", "F1", "18", 2640, 2401, 5],
+                ["B", "F2", "2", 2640, 2401, 3],
+            ],
         )
 
 

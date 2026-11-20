@@ -10,7 +10,7 @@ from app.services.utils.dbf_reader import normalize_path
 
 # Maximo de filas por archivo: si hay mas, se parte en varios para que la subida no sea pesada.
 MAX_FILAS_POR_ARCHIVO = 1000
-# Semana de siembra para rosas cuando el dato no viene en ld_lonas.
+# Semana de siembra que se exporta en todas las filas de rosas.
 SEMANA_SIEMBRA_ROSAS_DEFAULT = 2401
 
 
@@ -37,7 +37,7 @@ def exporta_cortes_lonas_excel(
     nombre_archivo: str = "ExportaCortes",
     cosecha_vacia: bool = False,
     max_filas: int = MAX_FILAS_POR_ARCHIVO,
-    semana_siembra_default: int | None = None,
+    semana_siembra_fija: int | None = None,
 ) -> list[str]:
     try:
         ini = pd.to_datetime(fecha_inicio, errors="raise").normalize()
@@ -102,12 +102,6 @@ def exporta_cortes_lonas_excel(
 
     df = df[df["cantidad"] > 0].copy()
     df["variedad"] = df["variedad"].str.replace(r"_$", "", regex=True)
-    if semana_siembra_default is not None:
-        df = _rellenar_semana_siembra(df, semana_siembra_default)
-    if cosecha_vacia:
-        # Rosas: la columna cosecha se exporta vacia (no se agrupa por ella).
-        df.insert(df.columns.get_loc("bloque") + 1, "cosecha", "")
-
     finca_map: dict = {}
     for codigo, nombre in settings.CORTES_LONAS_FINCA_MAP.items():
         finca_map[codigo] = nombre
@@ -116,6 +110,13 @@ def exporta_cortes_lonas_excel(
     if "finca" in df.columns:
         df["finca"] = df["finca"].map(lambda x: finca_map.get(x, finca_map.get(str(x).strip(), x)))
 
+    if semana_siembra_fija is not None:
+        # Va despues del mapeo de finca para que codigos como "001" y 1 queden en la misma fila.
+        df = _agrupar_semana_siembra_fija(df, semana_siembra_fija)
+    if cosecha_vacia:
+        # Rosas: la columna cosecha se exporta vacia (no se agrupa por ella).
+        df.insert(df.columns.get_loc("bloque") + 1, "cosecha", "")
+
     output_dir = Path(normalize_path(settings.EXCEL_OUTPUT_DIR))
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -123,16 +124,20 @@ def exporta_cortes_lonas_excel(
     return [str(p) for p in _escribir_en_partes(df, output_dir, base, max_filas)]
 
 
-def _rellenar_semana_siembra(df: pd.DataFrame, valor: int) -> pd.DataFrame:
-    """Pone `valor` donde no hay semana de siembra y reagrupa para no dejar filas duplicadas.
+def _agrupar_semana_siembra_fija(df: pd.DataFrame, semana_siembra: int) -> pd.DataFrame:
+    """Rosas: una fila por variedad/finca/bloque/semana con la semana de siembra fija.
 
-    Una misma variedad/finca/bloque/semana puede traer filas con y sin siembra; al
-    rellenar, las que caen en la misma semana de siembra se suman en una sola fila.
+    Toda fila queda con `semana_siembra` (el dato real no se usa), asi que las filas
+    de un mismo bloque y semana que venian con siembras distintas se suman en una.
     """
     df = df.copy()
-    df["semana_siembra"] = pd.to_numeric(df["semana_siembra"], errors="coerce").fillna(valor).astype(int)
+    df["semana_siembra"] = semana_siembra
     claves = ["variedad", "finca", "bloque", "semana", "semana_siembra"]
-    return df.groupby(claves, as_index=False, sort=False, dropna=False)["cantidad"].sum()
+    return (
+        df.groupby(claves, as_index=False, dropna=False)["cantidad"].sum()
+        .sort_values(["variedad", "finca", "bloque", "semana"], kind="stable")
+        .reset_index(drop=True)
+    )
 
 
 def _escribir_en_partes(df: pd.DataFrame, output_dir: Path, base: str, max_filas: int) -> list[Path]:
@@ -170,7 +175,7 @@ def generate_cortes_lonas_rosas(params: dict | None = None) -> str:
         flores=settings.CORTES_LONAS_ROSAS_FLOR_FILTER,
         nombre_archivo="ExportaCortesRosas",
         cosecha_vacia=True,
-        # Rosas: ld_lonas no trae fecha de siembra, se exporta la semana 2401 por defecto.
-        semana_siembra_default=SEMANA_SIEMBRA_ROSAS_DEFAULT,
+        # Rosas: siempre semana de siembra 2401, agrupando variedad/finca/bloque/semana.
+        semana_siembra_fija=SEMANA_SIEMBRA_ROSAS_DEFAULT,
     )
     return " | ".join(f"xlsx:{path}" for path in output_paths)
