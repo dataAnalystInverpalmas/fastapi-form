@@ -17,6 +17,7 @@ from app.services.dbf_loaders import (
 )
 from app.services.tika_loaders import load_tika_demanda
 from app.services.etl.definition import ETLJobDefinition
+from app.services.queries.arreglos_tika_query import generate_arreglos_tika
 from app.services.queries.cortes_lonas_query import generate_cortes_lonas, generate_cortes_lonas_rosas
 from app.services.etl_jobs import (
     generate_anomalias_lonas,
@@ -391,12 +392,26 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
         ETLJobDefinition(
             job_id="exporta_cortes_lonas_rosas",
             name="Exportar Cortes de Lonas Rosas",
-            description="Genera un Excel con cortes de rosas (ld_lonas) agrupados por variedad/finca/bloque y semana en un rango de fechas; la columna cosecha va vacia. Si pasa de 1000 filas se parte en varios archivos (_parteNN).",
+            description="Genera un Excel para Tika con los cortes de rosas (ld_lonas) del rango de fechas: columnas Finca/Bloque/Variedad/Tipo/Cantidad, Tipo CORTE_REAL y espacios de los nombres como guion al piso. Si pasa de 1000 filas se parte en varios archivos (_parteNN).",
             allows_parallel=True,
             timeout_seconds=900,
             runner=generate_cortes_lonas_rosas,
             supports_params=True,
             default_params=dict(default_week_range),
+            dependency_group="Analítica",
+            flow_group="04 - Analitica",
+            weekly_dates=True,
+        ),
+        ETLJobDefinition(
+            job_id="exporta_arreglos_tika",
+            name="Exportar Arreglos a Tika",
+            description="Genera un Excel para Tika con los arreglos de ld_arre (flor ROC y ROS) del rango de fechas: columnas Finca/Bloque/Variedad/Tipo/Cantidad, con el tipo que trae la tabla y espacios de los nombres como guion al piso. Si pasa de 1000 filas se parte en varios archivos (_parteNN).",
+            allows_parallel=True,
+            timeout_seconds=900,
+            runner=generate_arreglos_tika,
+            supports_params=True,
+            default_params=dict(default_week_range),
+            depends_on=["load_maestra_arre"],
             dependency_group="Analítica",
             flow_group="04 - Analitica",
             weekly_dates=True,

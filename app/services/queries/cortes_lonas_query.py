@@ -10,8 +10,10 @@ from app.services.utils.dbf_reader import normalize_path
 
 # Maximo de filas por archivo: si hay mas, se parte en varios para que la subida no sea pesada.
 MAX_FILAS_POR_ARCHIVO = 1000
-# Semana de siembra que se exporta en todas las filas de rosas.
-SEMANA_SIEMBRA_ROSAS_DEFAULT = 2401
+# Tipo con el que se exportan los cortes de rosas en el formato Tika.
+TIPO_CORTE_REAL = "CORTE_REAL"
+# Columnas del formato Tika (cortes de rosas y arreglos).
+COLUMNAS_TIKA = ["Finca", "Bloque", "Variedad", "Tipo", "Cantidad"]
 
 
 def _table_columns(table_name: str) -> set[str]:
@@ -35,10 +37,14 @@ def exporta_cortes_lonas_excel(
     fecha_fin: str,
     flores: list[str] | None = None,
     nombre_archivo: str = "ExportaCortes",
-    cosecha_vacia: bool = False,
     max_filas: int = MAX_FILAS_POR_ARCHIVO,
-    semana_siembra_fija: int | None = None,
+    tipo_tika: str | None = None,
 ) -> list[str]:
+    """Exporta cortes de ld_lonas.
+
+    Con `tipo_tika` sale en formato Tika (Finca/Bloque/Variedad/Tipo/Cantidad, sumando
+    todo el rango); sin el, el formato detallado por semana y semana de siembra.
+    """
     try:
         ini = pd.to_datetime(fecha_inicio, errors="raise").normalize()
         fin = pd.to_datetime(fecha_fin, errors="raise").normalize()
@@ -102,20 +108,13 @@ def exporta_cortes_lonas_excel(
 
     df = df[df["cantidad"] > 0].copy()
     df["variedad"] = df["variedad"].str.replace(r"_$", "", regex=True)
-    finca_map: dict = {}
-    for codigo, nombre in settings.CORTES_LONAS_FINCA_MAP.items():
-        finca_map[codigo] = nombre
-        finca_map[codigo.lstrip("0") or "0"] = nombre
-        finca_map[int(codigo)] = nombre
     if "finca" in df.columns:
-        df["finca"] = df["finca"].map(lambda x: finca_map.get(x, finca_map.get(str(x).strip(), x)))
+        df["finca"] = mapear_finca(df["finca"])
 
-    if semana_siembra_fija is not None:
+    if tipo_tika is not None:
         # Va despues del mapeo de finca para que codigos como "001" y 1 queden en la misma fila.
-        df = _agrupar_semana_siembra_fija(df, semana_siembra_fija)
-    if cosecha_vacia:
-        # Rosas: la columna cosecha se exporta vacia (no se agrupa por ella).
-        df.insert(df.columns.get_loc("bloque") + 1, "cosecha", "")
+        df = df.assign(tipo=tipo_tika)
+        df = formato_tika(df)
 
     output_dir = Path(normalize_path(settings.EXCEL_OUTPUT_DIR))
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -124,20 +123,48 @@ def exporta_cortes_lonas_excel(
     return [str(p) for p in _escribir_en_partes(df, output_dir, base, max_filas)]
 
 
-def _agrupar_semana_siembra_fija(df: pd.DataFrame, semana_siembra: int) -> pd.DataFrame:
-    """Rosas: una fila por variedad/finca/bloque/semana con la semana de siembra fija.
+def mapear_finca(fincas: pd.Series) -> pd.Series:
+    """Cambia el codigo de finca ("001", "1" o 1) por su nombre de CORTES_LONAS_FINCA_MAP."""
+    finca_map: dict = {}
+    for codigo, nombre in settings.CORTES_LONAS_FINCA_MAP.items():
+        finca_map[codigo] = nombre
+        finca_map[codigo.lstrip("0") or "0"] = nombre
+        finca_map[int(codigo)] = nombre
+    return fincas.map(lambda x: finca_map.get(x, finca_map.get(str(x).strip(), x)))
 
-    Toda fila queda con `semana_siembra` (el dato real no se usa), asi que las filas
-    de un mismo bloque y semana que venian con siembras distintas se suman en una.
+
+def _a_guion_bajo(serie: pd.Series) -> pd.Series:
+    """Convencion Tika: los espacios en los nombres van como guion al piso."""
+    return serie.astype("string").str.strip().str.replace(r"\s+", "_", regex=True)
+
+
+def formato_tika(df: pd.DataFrame) -> pd.DataFrame:
+    """Agrupa df (finca/bloque/variedad/tipo/cantidad) al formato de carga de Tika.
+
+    Una fila por Finca/Bloque/Variedad/Tipo con la Cantidad sumada; los textos
+    llevan los espacios cambiados por guion al piso.
     """
-    df = df.copy()
-    df["semana_siembra"] = semana_siembra
-    claves = ["variedad", "finca", "bloque", "semana", "semana_siembra"]
-    return (
-        df.groupby(claves, as_index=False, dropna=False)["cantidad"].sum()
-        .sort_values(["variedad", "finca", "bloque", "semana"], kind="stable")
-        .reset_index(drop=True)
-    )
+    df = df[["finca", "bloque", "variedad", "tipo", "cantidad"]].copy()
+    for col in ("finca", "variedad", "tipo"):
+        df[col] = _a_guion_bajo(df[col])
+    # Bloque como texto y sin ".0" (ld_arre lo guarda numerico), para que 9 y "9" sean el mismo.
+    df["bloque"] = df["bloque"].astype("string").str.strip().str.replace(r"\.0$", "", regex=True)
+    df["cantidad"] = pd.to_numeric(df["cantidad"], errors="coerce").fillna(0)
+
+    claves = ["finca", "bloque", "variedad", "tipo"]
+    out = df.groupby(claves, as_index=False, dropna=False)["cantidad"].sum()
+    out = out[out["cantidad"] > 0].copy()
+    out["cantidad"] = out["cantidad"].round().astype("int64")
+    out = out.sort_values(claves, kind="stable", key=_clave_orden)
+    out.columns = COLUMNAS_TIKA
+    return out.reset_index(drop=True)
+
+
+def _clave_orden(col: pd.Series) -> pd.Series:
+    """Bloques en orden numerico (2 antes de 10); el resto como texto."""
+    if col.name == "bloque":
+        return pd.to_numeric(col, errors="coerce")
+    return col.astype(str)
 
 
 def _escribir_en_partes(df: pd.DataFrame, output_dir: Path, base: str, max_filas: int) -> list[Path]:
@@ -174,8 +201,7 @@ def generate_cortes_lonas_rosas(params: dict | None = None) -> str:
         fecha_fin=params.get("fecha_fin"),
         flores=settings.CORTES_LONAS_ROSAS_FLOR_FILTER,
         nombre_archivo="ExportaCortesRosas",
-        cosecha_vacia=True,
-        # Rosas: siempre semana de siembra 2401, agrupando variedad/finca/bloque/semana.
-        semana_siembra_fija=SEMANA_SIEMBRA_ROSAS_DEFAULT,
+        # Rosas: formato Tika (Finca/Bloque/Variedad/Tipo/Cantidad) con Tipo CORTE_REAL.
+        tipo_tika=TIPO_CORTE_REAL,
     )
     return " | ".join(f"xlsx:{path}" for path in output_paths)

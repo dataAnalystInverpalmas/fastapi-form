@@ -4,7 +4,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from app.services.queries.cortes_lonas_query import _agrupar_semana_siembra_fija, _escribir_en_partes
+from app.services.queries.arreglos_tika_query import preparar_arreglos_tika
+from app.services.queries.cortes_lonas_query import _escribir_en_partes, formato_tika
 
 
 class EscribirEnPartesTests(unittest.TestCase):
@@ -43,29 +44,44 @@ class EscribirEnPartesTests(unittest.TestCase):
         )
 
 
-class AgruparSemanaSiembraFijaTests(unittest.TestCase):
-    def test_suma_siembras_por_bloque_con_2401(self):
+class FormatoTikaTests(unittest.TestCase):
+    def test_cortes_rosas_suma_semanas_y_usa_guion_bajo(self):
         df = pd.DataFrame(
             {
-                "variedad": ["A", "A", "A", "A", "B"],
-                "finca": ["F1", "F1", "F1", "F1", "F2"],
-                "bloque": ["12", "18", "12", "12", "2"],
-                "semana": [2640, 2640, 2640, 2641, 2640],
-                "semana_siembra": [None, 2310, 2401, None, 2320],
-                "cantidad": [10, 5, 7, 4, 3],
+                "finca": ["INVERPALMAS", "INVERPALMAS", "INVERPALMAS", "PALERMO", "INVERPALMAS"],
+                "bloque": ["9", "9", "10", "2", "9"],
+                "variedad": ["CARMESI", "CARMESI", "PINK FLOYD", "CARMESI", "SIN CORTE"],
+                "tipo": "CORTE_REAL",
+                "cantidad": [60, 40, 5, 3, 0],
             }
         )
-        out = _agrupar_semana_siembra_fija(df, 2401)
-        self.assertEqual(
-            out.columns.tolist(), ["variedad", "finca", "bloque", "semana", "semana_siembra", "cantidad"]
-        )
+        out = formato_tika(df)
+        self.assertEqual(out.columns.tolist(), ["Finca", "Bloque", "Variedad", "Tipo", "Cantidad"])
         self.assertEqual(
             out.values.tolist(),
             [
-                ["A", "F1", "12", 2640, 2401, 17],
-                ["A", "F1", "12", 2641, 2401, 4],
-                ["A", "F1", "18", 2640, 2401, 5],
-                ["B", "F2", "2", 2640, 2401, 3],
+                ["INVERPALMAS", "9", "CARMESI", "CORTE_REAL", 100],
+                ["INVERPALMAS", "10", "PINK_FLOYD", "CORTE_REAL", 5],
+                ["PALERMO", "2", "CARMESI", "CORTE_REAL", 3],
+            ],
+        )
+
+    def test_arreglos_conserva_tipo_y_mapea_finca(self):
+        df = pd.DataFrame(
+            {
+                "finca": ["001", "1", "002"],
+                "bloque": [9.0, 9.0, 3.0],
+                "variedad": ["FREE SPIRIT", "FREE SPIRIT", "CARMESI"],
+                "tipo": ["AR", "AR", "PODA SANITARIA"],
+                "cantidad": [10, 15, 7],
+            }
+        )
+        out = preparar_arreglos_tika(df)
+        self.assertEqual(
+            out.values.tolist(),
+            [
+                ["INVERPALMAS", "9", "FREE_SPIRIT", "AR", 25],
+                ["PALERMO", "3", "CARMESI", "PODA_SANITARIA", 7],
             ],
         )
 
