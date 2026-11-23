@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     """Configuración de la aplicación."""
     
     # Información de la aplicación
-    APP_NAME: str = "Portal de Datos Inverpalmas"
+    APP_NAME: str = "InverFlow - Portal de Datos Inverpalmas"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
     APP_ENV: str = "local"
@@ -98,7 +98,7 @@ class Settings(BaseSettings):
     SMTP_USE_TLS: bool = True
     SMTP_USE_SSL: bool = False
     SMTP_FROM_EMAIL: str = ""
-    SMTP_FROM_NAME: str = "Portal de Datos Inverpalmas"
+    SMTP_FROM_NAME: str = "InverFlow Inverpalmas"
     SMTP_TIMEOUT: int = 10
 
     # Salida del Excel

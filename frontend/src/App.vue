@@ -54,7 +54,7 @@ const iconClass = { success: 'fa-circle-check', danger: 'fa-circle-xmark', warni
       <div class="sidebar-header">
         <RouterLink to="/dashboard" class="sidebar-brand">
           <i class="fas fa-leaf"></i>
-          <span>Inverpalmas</span>
+          <span>InverFlow</span>
         </RouterLink>
       </div>
       <nav class="sidebar-nav">
@@ -83,7 +83,7 @@ const iconClass = { success: 'fa-circle-check', danger: 'fa-circle-xmark', warni
         <button class="btn btn-link topbar-toggle d-lg-none" type="button" @click="sidebarOpen = !sidebarOpen">
           <i class="fas fa-bars"></i>
         </button>
-        <h1 class="topbar-title">{{ route.meta.title || 'Portal de Datos' }}</h1>
+        <h1 class="topbar-title">{{ route.meta.title || 'InverFlow' }}</h1>
       </header>
 
       <main class="page-content">
@@ -91,7 +91,7 @@ const iconClass = { success: 'fa-circle-check', danger: 'fa-circle-xmark', warni
       </main>
 
       <footer class="app-footer">
-        <small><i class="fas fa-server me-1"></i>Portal de Datos Inverpalmas</small>
+        <small><i class="fas fa-server me-1"></i>InverFlow · Portal de Datos Inverpalmas</small>
       </footer>
     </div>
   </div>
