@@ -12,8 +12,15 @@ from app.services.utils.dbf_reader import normalize_path
 MAX_FILAS_POR_ARCHIVO = 1000
 # Tipo con el que se exportan los cortes de rosas en el formato Tika.
 TIPO_CORTE_REAL = "CORTE_REAL"
-# Columnas del formato Tika (cortes de rosas y arreglos).
-COLUMNAS_TIKA = ["Finca", "Bloque", "Variedad", "Tipo", "Cantidad"]
+# Columnas del formato Tika (cortes de rosas y arreglos); Semana solo va si el df la trae.
+COLUMNAS_TIKA = {
+    "finca": "Finca",
+    "bloque": "Bloque",
+    "variedad": "Variedad",
+    "semana": "Semana",
+    "tipo": "Tipo",
+    "cantidad": "Cantidad",
+}
 
 
 def _table_columns(table_name: str) -> set[str]:
@@ -42,8 +49,8 @@ def exporta_cortes_lonas_excel(
 ) -> list[str]:
     """Exporta cortes de ld_lonas.
 
-    Con `tipo_tika` sale en formato Tika (Finca/Bloque/Variedad/Tipo/Cantidad, sumando
-    todo el rango); sin el, el formato detallado por semana y semana de siembra.
+    Con `tipo_tika` sale en formato Tika (Finca/Bloque/Variedad/Semana/Tipo/Cantidad);
+    sin el, el formato detallado por semana y semana de siembra.
     """
     try:
         ini = pd.to_datetime(fecha_inicio, errors="raise").normalize()
@@ -139,30 +146,30 @@ def _a_guion_bajo(serie: pd.Series) -> pd.Series:
 
 
 def formato_tika(df: pd.DataFrame) -> pd.DataFrame:
-    """Agrupa df (finca/bloque/variedad/tipo/cantidad) al formato de carga de Tika.
+    """Agrupa df (finca/bloque/variedad/[semana]/tipo/cantidad) al formato de carga de Tika.
 
-    Una fila por Finca/Bloque/Variedad/Tipo con la Cantidad sumada; los textos
-    llevan los espacios cambiados por guion al piso.
+    Una fila por Finca/Bloque/Variedad/[Semana]/Tipo con la Cantidad sumada; los textos
+    llevan los espacios cambiados por guion al piso. Semana solo se incluye si df la trae.
     """
-    df = df[["finca", "bloque", "variedad", "tipo", "cantidad"]].copy()
+    df = df[[c for c in COLUMNAS_TIKA if c in df.columns]].copy()
     for col in ("finca", "variedad", "tipo"):
         df[col] = _a_guion_bajo(df[col])
     # Bloque como texto y sin ".0" (ld_arre lo guarda numerico), para que 9 y "9" sean el mismo.
     df["bloque"] = df["bloque"].astype("string").str.strip().str.replace(r"\.0$", "", regex=True)
     df["cantidad"] = pd.to_numeric(df["cantidad"], errors="coerce").fillna(0)
 
-    claves = ["finca", "bloque", "variedad", "tipo"]
+    claves = [c for c in df.columns if c != "cantidad"]
     out = df.groupby(claves, as_index=False, dropna=False)["cantidad"].sum()
     out = out[out["cantidad"] > 0].copy()
     out["cantidad"] = out["cantidad"].round().astype("int64")
     out = out.sort_values(claves, kind="stable", key=_clave_orden)
-    out.columns = COLUMNAS_TIKA
+    out = out.rename(columns=COLUMNAS_TIKA)
     return out.reset_index(drop=True)
 
 
 def _clave_orden(col: pd.Series) -> pd.Series:
-    """Bloques en orden numerico (2 antes de 10); el resto como texto."""
-    if col.name == "bloque":
+    """Bloques y semanas en orden numerico (2 antes de 10); el resto como texto."""
+    if col.name in ("bloque", "semana"):
         return pd.to_numeric(col, errors="coerce")
     return col.astype(str)
 
@@ -201,7 +208,7 @@ def generate_cortes_lonas_rosas(params: dict | None = None) -> str:
         fecha_fin=params.get("fecha_fin"),
         flores=settings.CORTES_LONAS_ROSAS_FLOR_FILTER,
         nombre_archivo="ExportaCortesRosas",
-        # Rosas: formato Tika (Finca/Bloque/Variedad/Tipo/Cantidad) con Tipo CORTE_REAL.
+        # Rosas: formato Tika (Finca/Bloque/Variedad/Semana/Tipo/Cantidad) con Tipo CORTE_REAL.
         tipo_tika=TIPO_CORTE_REAL,
     )
     return " | ".join(f"xlsx:{path}" for path in output_paths)

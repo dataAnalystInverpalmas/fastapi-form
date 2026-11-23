@@ -392,7 +392,7 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
         ETLJobDefinition(
             job_id="exporta_cortes_lonas_rosas",
             name="Exportar Cortes de Lonas Rosas",
-            description="Genera un Excel para Tika con los cortes de rosas (ld_lonas) del rango de fechas: columnas Finca/Bloque/Variedad/Tipo/Cantidad, Tipo CORTE_REAL y espacios de los nombres como guion al piso. Si pasa de 1000 filas se parte en varios archivos (_parteNN).",
+            description="Genera un Excel para Tika con los cortes de rosas (ld_lonas) del rango de fechas: columnas Finca/Bloque/Variedad/Semana/Tipo/Cantidad, Tipo CORTE_REAL y espacios de los nombres como guion al piso. Si pasa de 1000 filas se parte en varios archivos (_parteNN).",
             allows_parallel=True,
             timeout_seconds=900,
             runner=generate_cortes_lonas_rosas,
@@ -405,7 +405,7 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
         ETLJobDefinition(
             job_id="exporta_arreglos_tika",
             name="Exportar Arreglos a Tika",
-            description="Genera un Excel para Tika con los arreglos de ld_arre (flor ROC y ROS) del rango de fechas: columnas Finca/Bloque/Variedad/Tipo/Cantidad, con el tipo que trae la tabla y espacios de los nombres como guion al piso. Si pasa de 1000 filas se parte en varios archivos (_parteNN).",
+            description="Genera un Excel para Tika con los arreglos de ld_arre (flor ROC y ROS) del rango de fechas: columnas Finca/Bloque/Variedad/Tipo/Cantidad, con el tipo de la tabla renombrado (S1-S3 -> Selectiva_N, AR -> Poda_AR, BA -> Poda_BA) y espacios de los nombres como guion al piso. Si pasa de 1000 filas se parte en varios archivos (_parteNN).",
             allows_parallel=True,
             timeout_seconds=900,
             runner=generate_arreglos_tika,
