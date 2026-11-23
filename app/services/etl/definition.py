@@ -19,6 +19,10 @@ class ETLJobDefinition:
     dependency_group: str | None = None
     flow_group: str | None = None
     weekly_dates: bool = False
+    # Rango fresco de los jobs semanales: "previous_year" (lunes semana 1 del
+    # año anterior) o "previous_week" (lunes de la semana pasada). En ambos
+    # fecha_fin es el domingo de la semana pasada.
+    weekly_range: str = "previous_year"
     # Pasos manuales que rodean al job (descargar una consulta de Tika,
     # subir un archivo al sistema de cultivo, borrar datos antes de cargar...).
     # El modulo Proyecciones los muestra en el listado y en el modal de

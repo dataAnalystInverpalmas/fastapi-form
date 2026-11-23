@@ -8,7 +8,7 @@ from fastapi import HTTPException
 
 from app.services.utils.dbf_reader import read_dbf_file
 from app.services.etl.params import normalize_job_params, resolve_params_for_run
-from app.services.etl.helpers import default_previous_year_week_range
+from app.services.etl.helpers import fresh_week_range
 from app.services.etl.repository import (
     count_by_status,
     get_last_job_params,
@@ -311,7 +311,7 @@ def api_cancel_run(run_id: int):
 @router.get("/etl/jobs/{job_id}/last-params")
 def api_last_job_params(job_id: str):
     job = get_job(job_id)
-    fresh_defaults = default_previous_year_week_range() if job and job.weekly_dates else {}
+    fresh_defaults = fresh_week_range(job.weekly_range) if job and job.weekly_dates else {}
     return {"job_id": job_id, "params": get_last_job_params(job_id), "fresh_date_defaults": fresh_defaults}
 
 
@@ -339,7 +339,7 @@ def api_list_etl_params():
                 "menu_type": "load" if job_id.startswith("load_") else "etl",
                 "default_params": job.default_params or {},
                 "last_params": last_params,
-                "fresh_date_defaults": default_previous_year_week_range() if job.weekly_dates else {},
+                "fresh_date_defaults": fresh_week_range(job.weekly_range) if job.weekly_dates else {},
                 "last_status": status.get("last_status") or "",
                 "last_started_at": status.get("last_started_at"),
                 "last_error_message": status.get("last_error_message"),

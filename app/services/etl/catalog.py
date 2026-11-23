@@ -1,7 +1,7 @@
 ﻿from __future__ import annotations
 
 from app.core.settings import settings
-from app.services.etl.helpers import default_previous_year_week_range
+from app.services.etl.helpers import default_previous_week_range, default_previous_year_week_range
 from app.services.dbf_loaders import (
     load_maestra_arre,
     load_maestra_causas,
@@ -57,6 +57,7 @@ from app.services.etl_jobs import (
 
 def build_job_catalog() -> dict[str, ETLJobDefinition]:
     default_week_range = default_previous_year_week_range()
+    previous_week_range = default_previous_week_range()
     jobs = [
         ETLJobDefinition(
             job_id="excel_labores",
@@ -384,10 +385,11 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             timeout_seconds=900,
             runner=generate_cortes_lonas,
             supports_params=True,
-            default_params=dict(default_week_range),
+            default_params=dict(previous_week_range),
             dependency_group="Analítica",
             flow_group="04 - Analitica",
             weekly_dates=True,
+            weekly_range="previous_week",
         ),
         ETLJobDefinition(
             job_id="exporta_cortes_lonas_rosas",
@@ -397,10 +399,11 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             timeout_seconds=900,
             runner=generate_cortes_lonas_rosas,
             supports_params=True,
-            default_params=dict(default_week_range),
+            default_params=dict(previous_week_range),
             dependency_group="Analítica",
             flow_group="04 - Analitica",
             weekly_dates=True,
+            weekly_range="previous_week",
         ),
         ETLJobDefinition(
             job_id="exporta_arreglos_tika",

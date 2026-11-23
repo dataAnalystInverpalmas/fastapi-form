@@ -4,7 +4,7 @@ from datetime import datetime
 import json
 from typing import Any
 
-from app.services.etl.helpers import default_previous_year_week_range
+from app.services.etl.helpers import fresh_week_range
 from app.services.etl.repository import get_last_job_params
 from app.services.etl.registry import get_job
 
@@ -190,7 +190,7 @@ def resolve_params_for_run(job_id: str, raw_params: dict[str, Any] | None) -> di
     if job.weekly_dates:
         # Los jobs semanales siempre usan el rango fresco: fecha_fin = ultimo
         # domingo. Recomputar aqui evita que una fecha guardada quede vieja.
-        resolved.update(default_previous_year_week_range())
+        resolved.update(fresh_week_range(job.weekly_range))
 
     explicit_params = normalize_job_params(job_id=job_id, raw_params=raw_params)
     if explicit_params:
