@@ -1,7 +1,7 @@
 ﻿from __future__ import annotations
 
 from app.core.settings import settings
-from app.services.etl.helpers import default_previous_year_week_range
+from app.services.etl.helpers import default_previous_week_range, default_previous_year_week_range
 from app.services.dbf_loaders import (
     load_maestra_arre,
     load_maestra_causas,
@@ -57,6 +57,7 @@ from app.services.etl_jobs import (
 
 def build_job_catalog() -> dict[str, ETLJobDefinition]:
     default_week_range = default_previous_year_week_range()
+    previous_week_range = default_previous_week_range()
     jobs = [
         ETLJobDefinition(
             job_id="excel_labores",
@@ -384,28 +385,30 @@ def build_job_catalog() -> dict[str, ETLJobDefinition]:
             timeout_seconds=900,
             runner=generate_cortes_lonas,
             supports_params=True,
-            default_params=dict(default_week_range),
+            default_params=dict(previous_week_range),
             dependency_group="Analítica",
             flow_group="04 - Analitica",
             weekly_dates=True,
+            weekly_range="previous_week",
         ),
         ETLJobDefinition(
             job_id="exporta_cortes_lonas_rosas",
             name="Exportar Cortes de Lonas Rosas",
-            description="Genera un Excel para Tika con los cortes de rosas (ld_lonas) del rango de fechas: columnas Finca/Bloque/Variedad/Tipo/Cantidad, Tipo CORTE_REAL y espacios de los nombres como guion al piso. Si pasa de 1000 filas se parte en varios archivos (_parteNN).",
+            description="Genera un Excel para Tika con los cortes de rosas (ld_lonas) del rango de fechas: columnas Finca/Bloque/Variedad/Semana/Tipo/Cantidad, Tipo CORTE_REAL y espacios de los nombres como guion al piso. Si pasa de 1000 filas se parte en varios archivos (_parteNN).",
             allows_parallel=True,
             timeout_seconds=900,
             runner=generate_cortes_lonas_rosas,
             supports_params=True,
-            default_params=dict(default_week_range),
+            default_params=dict(previous_week_range),
             dependency_group="Analítica",
             flow_group="04 - Analitica",
             weekly_dates=True,
+            weekly_range="previous_week",
         ),
         ETLJobDefinition(
             job_id="exporta_arreglos_tika",
             name="Exportar Arreglos a Tika",
-            description="Genera un Excel para Tika con los arreglos de ld_arre (flor ROC y ROS) del rango de fechas: columnas Finca/Bloque/Variedad/Tipo/Cantidad, con el tipo que trae la tabla y espacios de los nombres como guion al piso. Si pasa de 1000 filas se parte en varios archivos (_parteNN).",
+            description="Genera un Excel para Tika con los arreglos de ld_arre (flor ROC y ROS) del rango de fechas: columnas Finca/Bloque/Variedad/Tipo/Cantidad, con el tipo de la tabla renombrado (S1-S3 -> Selectiva_N, AR -> Poda_AR, BA -> Poda_BA) y espacios de los nombres como guion al piso. Si pasa de 1000 filas se parte en varios archivos (_parteNN).",
             allows_parallel=True,
             timeout_seconds=900,
             runner=generate_arreglos_tika,

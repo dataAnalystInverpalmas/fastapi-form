@@ -14,11 +14,22 @@ from app.services.queries.cortes_lonas_query import (
 )
 from app.services.utils.dbf_reader import normalize_path
 
+# Nombre con que Tika recibe cada tipo de ld_arre; los que no esten aqui salen tal cual.
+TIPOS_TIKA = {
+    "S1": "Selectiva_1",
+    "S2": "Selectiva_2",
+    "S3": "Selectiva_3",
+    "AR": "Poda_AR",
+    "BA": "Poda_BA",
+}
+
 
 def preparar_arreglos_tika(df: pd.DataFrame) -> pd.DataFrame:
     """Lleva filas de ld_arre (finca/bloque/variedad/tipo/cantidad) al formato Tika."""
     df = df.copy()
     df["finca"] = mapear_finca(df["finca"])
+    tipo = df["tipo"].astype("string").str.strip().str.upper()
+    df["tipo"] = tipo.map(TIPOS_TIKA).fillna(tipo)
     return formato_tika(df)
 
 

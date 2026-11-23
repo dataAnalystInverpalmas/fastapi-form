@@ -150,6 +150,24 @@ def default_previous_year_week_range() -> dict[str, str]:
     }
 
 
+def default_previous_week_range() -> dict[str, str]:
+    """Retorna el rango de la semana pasada: lunes a domingo."""
+    rango = default_previous_year_week_range()
+    fecha_fin = pd.Timestamp(rango["fecha_fin"])
+    fecha_inicio = fecha_fin - pd.Timedelta(days=6)
+    return {
+        "fecha_inicio": fecha_inicio.strftime("%Y-%m-%d"),
+        "fecha_fin": rango["fecha_fin"],
+    }
+
+
+def fresh_week_range(weekly_range: str) -> dict[str, str]:
+    """Rango fresco segun el tipo declarado en el catalogo (ETLJobDefinition.weekly_range)."""
+    if weekly_range == "previous_week":
+        return default_previous_week_range()
+    return default_previous_year_week_range()
+
+
 def resolve_date_range_params(params: dict[str, Any] | None = None) -> tuple[pd.Timestamp, pd.Timestamp]:
     """Resuelve fecha_inicio/fecha_fin usando defaults semanales y overrides explícitos."""
     defaults = default_previous_year_week_range()
