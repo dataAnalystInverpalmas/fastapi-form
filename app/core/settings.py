@@ -367,6 +367,8 @@ class Settings(BaseSettings):
     CORTES_LONAS_FLOR_FILTER: list[str] = ["CLA", "CM0"]
     CORTES_LONAS_ROSAS_FLOR_FILTER: list[str] = ["ROS", "ROC"]
     CORTES_LONAS_FINCA_MAP: dict[str, str] = {"001": "INVERPALMAS", "002": "PALERMO"}
+    # Exportar arreglos (ld_arre) a Tika
+    ARREGLOS_TIKA_FLOR_FILTER: list[str] = ["ROC", "ROS"]
 
     # ETL informe jefes de area consolidado
     INFORMES_JEFES_AREA_INPUT_PATH: str = r"\\172.10.18.2\Usuarios\Hilder\INFORMES MES\DATOS\base_datos.xlsx"
