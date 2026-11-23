@@ -77,21 +77,24 @@ class FormatoTikaTests(unittest.TestCase):
                 "finca": ["001", "1", "002", "002", "001", "001", "002"],
                 "bloque": [9.0, 9.0, 3.0, 3.0, 4.0, 4.0, 5.0],
                 "variedad": ["FREE SPIRIT", "FREE SPIRIT", "CARMESI", "CARMESI", "CARMESI", "CARMESI", "CARMESI"],
+                "semana": [2646, 2646, 2646, 2646, 2645, 2646, 2646],
                 "tipo": ["AR", "AR", "BA", "S1", "S2", "S3", "DC"],
                 "cantidad": [10, 15, 7, 1, 2, 3, 4],
             }
         )
         out = preparar_arreglos_tika(df)
-        self.assertEqual(out.columns.tolist(), ["Finca", "Bloque", "Variedad", "Tipo", "Cantidad"])
+        self.assertEqual(
+            out.columns.tolist(), ["Finca", "Bloque", "Variedad", "Semana", "Tipo", "Cantidad"]
+        )
         self.assertEqual(
             out.values.tolist(),
             [
-                ["INVERPALMAS", "4", "CARMESI", "Selectiva_2", 2],
-                ["INVERPALMAS", "4", "CARMESI", "Selectiva_3", 3],
-                ["INVERPALMAS", "9", "FREE_SPIRIT", "Poda_AR", 25],
-                ["PALERMO", "3", "CARMESI", "Poda_BA", 7],
-                ["PALERMO", "3", "CARMESI", "Selectiva_1", 1],
-                ["PALERMO", "5", "CARMESI", "DC", 4],
+                ["INVERPALMAS", "4", "CARMESI", 2645, "Selectiva_2", 2],
+                ["INVERPALMAS", "4", "CARMESI", 2646, "Selectiva_3", 3],
+                ["INVERPALMAS", "9", "FREE_SPIRIT", 2646, "Poda_AR", 25],
+                ["PALERMO", "3", "CARMESI", 2646, "Poda_BA", 7],
+                ["PALERMO", "3", "CARMESI", 2646, "Selectiva_1", 1],
+                ["PALERMO", "5", "CARMESI", 2646, "DC", 4],
             ],
         )
 

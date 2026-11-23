@@ -25,7 +25,7 @@ TIPOS_TIKA = {
 
 
 def preparar_arreglos_tika(df: pd.DataFrame) -> pd.DataFrame:
-    """Lleva filas de ld_arre (finca/bloque/variedad/tipo/cantidad) al formato Tika."""
+    """Lleva filas de ld_arre (finca/bloque/variedad/semana/tipo/cantidad) al formato Tika."""
     df = df.copy()
     df["finca"] = mapear_finca(df["finca"])
     tipo = df["tipo"].astype("string").str.strip().str.upper()
@@ -59,12 +59,15 @@ def exporta_arreglos_tika_excel(
             a.finca,
             a.bloque,
             COALESCE(NULLIF(TRIM(a.nombre_variedad), ''), a.variedad) AS variedad,
+            d.aass AS semana,
             a.tipo,
             SUM(COALESCE(a.tallos, 0)) AS cantidad
         FROM ld_arre AS a
+        LEFT JOIN dates AS d
+            ON d.fecha = DATE(a.fecha)
         WHERE DATE(a.fecha) BETWEEN %s AND %s
           AND UPPER(TRIM(a.flor)) IN ({placeholders})
-        GROUP BY a.finca, a.bloque, COALESCE(NULLIF(TRIM(a.nombre_variedad), ''), a.variedad), a.tipo
+        GROUP BY a.finca, a.bloque, COALESCE(NULLIF(TRIM(a.nombre_variedad), ''), a.variedad), d.aass, a.tipo
     """
 
     with db_connection() as connection:
@@ -73,7 +76,7 @@ def exporta_arreglos_tika_excel(
         rows = cursor.fetchall()
         cursor.close()
 
-    df = pd.DataFrame(rows, columns=["finca", "bloque", "variedad", "tipo", "cantidad"])
+    df = pd.DataFrame(rows, columns=["finca", "bloque", "variedad", "semana", "tipo", "cantidad"])
     df = preparar_arreglos_tika(df)
 
     output_dir = Path(normalize_path(settings.EXCEL_OUTPUT_DIR))
